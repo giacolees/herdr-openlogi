@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y shellcheck bats jq
+
+      - name: shellcheck
+        run: shellcheck bin/herdr-mouse install.sh
+
+      - name: sh syntax check
+        run: sh -n bin/herdr-mouse && sh -n install.sh
+
+      - name: bats tests
+        run: bats tests/
+
+      - name: install.sh --check smoke (fixture)
+        run: |
+          set -eu
+          FIXTURE_HOME="$(mktemp -d)"
+          export HOME="$FIXTURE_HOME"
+          echo "Fixture HOME: $HOME"
+          ./install.sh
+          test -L "$HOME/.local/bin/herdr-mouse"
+          mkdir -p "$HOME/.config/openlogi"
+          # Build fixture config from reference snippet
+          {
+            printf 'selected_device = "test-device"\n\n'
+            printf '[devices."test-device"]\n'
+            printf 'name = "MX Master 3S"\n\n'
+            printf '%s\n' \
+              '[devices."test-device".per_app_bindings."com.mitchellh.ghostty"]'
+            grep -E '^(Back|Forward|GestureButton|DpiToggle|Thumbwheel)' \
+              openlogi/per-app-bindings.toml
+          } > "$HOME/.config/openlogi/config.toml"
+          cat "$HOME/.config/openlogi/config.toml"
+          ./install.sh --check
+          ./install.sh --check | grep -q "All checks passed"
+          echo "Smoke passed."
+          BAD_HOME="$(mktemp -d)"
+          if HOME="$BAD_HOME" ./install.sh --check 2>&1 | grep -q "Fix:"; then
+            echo "Negative check OK (Fix: hint present)"
+          else
+            echo "FAIL: expected Fix: hint on bad HOME" >&2
+            exit 1
+          fi
+          rm -rf "$FIXTURE_HOME" "$BAD_HOME"
