@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-23
+
+### Fixed
+
+- Thumb-wheel Workspace cycle no longer skips workspaces on fast scrolls.
+  Added 250 ms debounce (shared between `next-workspace` / `prev-workspace`)
+  via timestamp file (`/tmp/herdr-mouse.throttle.workspace`). Tune with
+  `HERDR_MOUSE_DEBOUNCE_MS` (default `250`, `0` disables) or override dir
+  with `HERDR_MOUSE_THROTTLE_DIR` for testing. Throttled events are silent
+  unless `HERDR_MOUSE_DEBUG=1`.
+
 ## [0.1.0] - 2026-08-23
 
 ### Added

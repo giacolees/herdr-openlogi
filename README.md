@@ -223,6 +223,21 @@ Explanations go to **stderr**; the output contract when the variable is unset is
 
 Do not add `PATH`-mutating wrappers around the OpenLogi actions — the dispatcher's absolute resolution already handles the GUI `PATH` correctly.
 
+### Thumb-wheel sensitivity
+
+The thumb wheel fires many events per physical tick — without throttling it can skip workspaces. The Dispatcher debounces `next-workspace` / `prev-workspace` with a 250 ms window (shared between the two directions). Tune it via the environment:
+
+```sh
+# Inside the OpenLogi binding (example):
+ThumbwheelScrollUp = { RunShellCommand = "HERDR_MOUSE_DEBOUNCE_MS=400 $HOME/.local/bin/herdr-mouse prev-workspace" }
+ThumbwheelScrollDown = { RunShellCommand = "HERDR_MOUSE_DEBOUNCE_MS=400 $HOME/.local/bin/herdr-mouse next-workspace" }
+
+# Disable debounce entirely:
+HERDR_MOUSE_DEBOUNCE_MS=0 herdr-mouse next-workspace
+```
+
+Default `250` ms, `0` disables. With `HERDR_MOUSE_DEBUG=1` a throttled event prints `[herdr-mouse] throttled: next-workspace within 250ms` to stderr.
+
 ---
 
 ## Uninstall
@@ -265,6 +280,7 @@ This is the single source of truth for deployment health. It checks the symlink 
 | `herdr-mouse` works when run manually but not from the mouse | No `--check` failure | Check you are focused on **Ghostty**. The overlay only fires when `com.mitchellh.ghostty` is frontmost — focusing Terminal, iTerm2, etc. uses OpenLogi defaults. Also see the GUI-PATH caveat above. |
 | `herdr pane current` doesn't change after a directional action | None — this is expected for some layouts | If there's no neighbor pane in that direction, the action is a silent no-op by design. Try a layout with adjacent panes or check `herdr pane list`. |
 | Tab buttons do nothing with one tab | None — expected | Tab cycle no-ops on a single tab. Create a second tab and try again. |
+| Thumb wheel skips workspaces / sensitivity too high | — | Debounce is too low. Raise `HERDR_MOUSE_DEBOUNCE_MS` (default 250 ms) in the binding, e.g. `HERDR_MOUSE_DEBOUNCE_MS=400 $HOME/.local/bin/herdr-mouse next-workspace`. See [Thumb-wheel sensitivity](#thumb-wheel-sensitivity). |
 | `herdr` or `jq` errors in Console.app | — | The dispatcher suppresses all output on purpose (all calls redirect to `/dev/null` with `\|\| true`). If you see log spam it likely comes from an old pre-canonization script still on `PATH` — ensure `~/.local/bin/herdr-mouse` is a symlink to this repo, not a directory of legacy scripts. `install.sh` removes a legacy directory automatically. |
 | OpenLogi overwrote `config.toml` | — | OpenLogi is the owner of this file. Treat your overlay edit as a one-time patch. If it disappears after an OpenLogi update, re-paste the snippet and re-run `--check`. `openlogi/per-app-bindings.toml` in this repo is the backup source of truth. |
 

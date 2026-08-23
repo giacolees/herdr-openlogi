@@ -11,16 +11,22 @@ setup() {
   export HERDR_BIN="$FIXTURES/mock-herdr"
   export JQ_BIN="$FIXTURES/mock-jq"
   chmod +x "$HERDR_BIN" "$JQ_BIN" 2>/dev/null || true
+  # disable workspace debounce by default for deterministic tests
+  export HERDR_MOUSE_DEBOUNCE_MS=0
+  export HERDR_MOUSE_THROTTLE_DIR="$TMPDIR"
   # ensure dispatcher trace flag does not interfere
   rm -f /tmp/herdr-mouse.debug /tmp/herdr-mouse.debug.log 2>/dev/null || true
+  rm -f /tmp/herdr-mouse.throttle.workspace 2>/dev/null || true
   # clear per-test mock controls
   unset MOCK_HERDR_FAIL MOCK_JQ_FAIL MOCK_FOCUS_CHANGED MOCK_TAB_MODE MOCK_WS_MODE
   unset HERDR_MOUSE_DEBUG
+  unset HERDR_MOUSE_THROTTLE_FILE
 }
 
 teardown() {
   rm -rf "$TMPDIR" 2>/dev/null || true
   rm -f /tmp/herdr-mouse.debug /tmp/herdr-mouse.debug.log 2>/dev/null || true
+  rm -f /tmp/herdr-mouse.throttle.workspace 2>/dev/null || true
 }
 
 # --- happy: directional focus ---
@@ -239,4 +245,52 @@ teardown() {
   run env HERDR_BIN="$HERDR_BIN" JQ_BIN="$JQ_BIN" MOCK_LOG="$MOCK_LOG" HERDR_MOUSE_DEBUG=1 "$BATS_TEST_DIRNAME/../bin/herdr-mouse" zoom-toggle
   [ "$status" -eq 0 ]
   echo "$output" | grep -q "zoomed"
+}
+
+# --- debounce: thumb wheel workspace throttle ---
+
+@test "next-workspace throttled within debounce window" {
+  export HERDR_MOUSE_DEBOUNCE_MS=500
+  export HERDR_MOUSE_THROTTLE_DIR="$TMPDIR"
+  run env HERDR_BIN="$HERDR_BIN" JQ_BIN="$JQ_BIN" MOCK_LOG="$MOCK_LOG" HERDR_MOUSE_DEBOUNCE_MS=500 HERDR_MOUSE_THROTTLE_DIR="$TMPDIR" "$BATS_TEST_DIRNAME/../bin/herdr-mouse" next-workspace
+  [ "$status" -eq 0 ]
+  grep -q "workspace focus ws-2" "$MOCK_LOG"
+  # second call within window should be throttled (no second focus)
+  run env HERDR_BIN="$HERDR_BIN" JQ_BIN="$JQ_BIN" MOCK_LOG="$MOCK_LOG" HERDR_MOUSE_DEBOUNCE_MS=500 HERDR_MOUSE_THROTTLE_DIR="$TMPDIR" "$BATS_TEST_DIRNAME/../bin/herdr-mouse" next-workspace
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  # still only one workspace focus in log (second was throttled before herdr call)
+  count=$(grep -c "workspace focus" "$MOCK_LOG" 2>/dev/null || echo 0)
+  [ "$count" -eq 1 ]
+}
+
+@test "next-workspace throttled debug prints throttled line" {
+  export HERDR_MOUSE_DEBOUNCE_MS=500
+  export HERDR_MOUSE_THROTTLE_DIR="$TMPDIR"
+  run env HERDR_BIN="$HERDR_BIN" JQ_BIN="$JQ_BIN" MOCK_LOG="$MOCK_LOG" HERDR_MOUSE_DEBOUNCE_MS=500 HERDR_MOUSE_THROTTLE_DIR="$TMPDIR" "$BATS_TEST_DIRNAME/../bin/herdr-mouse" next-workspace
+  [ "$status" -eq 0 ]
+  run env HERDR_BIN="$HERDR_BIN" JQ_BIN="$JQ_BIN" MOCK_LOG="$MOCK_LOG" HERDR_MOUSE_DEBOUNCE_MS=500 HERDR_MOUSE_THROTTLE_DIR="$TMPDIR" HERDR_MOUSE_DEBUG=1 "$BATS_TEST_DIRNAME/../bin/herdr-mouse" next-workspace
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "throttled"
+}
+
+@test "workspace debounce disabled with HERDR_MOUSE_DEBOUNCE_MS=0" {
+  export HERDR_MOUSE_DEBOUNCE_MS=0
+  export HERDR_MOUSE_THROTTLE_DIR="$TMPDIR"
+  # prime throttle file with recent timestamp
+  printf '%s' "$(perl -MTime::HiRes=time -e 'printf "%d", int(time*1000)' 2>/dev/null || python3 -c 'import time; print(int(time.time()*1000))' 2>/dev/null || printf '%d000' "$(date +%s)")" > "$TMPDIR/herdr-mouse.throttle.workspace"
+  run env HERDR_BIN="$HERDR_BIN" JQ_BIN="$JQ_BIN" MOCK_LOG="$MOCK_LOG" HERDR_MOUSE_DEBOUNCE_MS=0 HERDR_MOUSE_THROTTLE_DIR="$TMPDIR" "$BATS_TEST_DIRNAME/../bin/herdr-mouse" next-workspace
+  [ "$status" -eq 0 ]
+  grep -q "workspace focus" "$MOCK_LOG"
+}
+
+@test "prev-workspace shares throttle with next-workspace" {
+  export HERDR_MOUSE_DEBOUNCE_MS=500
+  export HERDR_MOUSE_THROTTLE_DIR="$TMPDIR"
+  run env HERDR_BIN="$HERDR_BIN" JQ_BIN="$JQ_BIN" MOCK_LOG="$MOCK_LOG" HERDR_MOUSE_DEBOUNCE_MS=500 HERDR_MOUSE_THROTTLE_DIR="$TMPDIR" "$BATS_TEST_DIRNAME/../bin/herdr-mouse" next-workspace
+  [ "$status" -eq 0 ]
+  run env HERDR_BIN="$HERDR_BIN" JQ_BIN="$JQ_BIN" MOCK_LOG="$MOCK_LOG" HERDR_MOUSE_DEBOUNCE_MS=500 HERDR_MOUSE_THROTTLE_DIR="$TMPDIR" "$BATS_TEST_DIRNAME/../bin/herdr-mouse" prev-workspace
+  [ "$status" -eq 0 ]
+  count=$(grep -c "workspace focus" "$MOCK_LOG" 2>/dev/null || echo 0)
+  [ "$count" -eq 1 ]
 }
