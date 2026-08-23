@@ -1,0 +1,171 @@
+#!/bin/sh
+# herdr-mouse — dispatcher for OpenLogi → herdr mouse bindings
+# POSIX sh only. One binary, seven subcommands. Every branch is a silent
+# no-op (exit 0, no output) if herdr is unreachable, jq is missing, or the
+# requested move is impossible. Called via RunShellCommand from the
+# per_app_bindings overlay; the GUI PATH is minimal so we resolve absolute
+# paths for herdr/jq and never rely on login-shell PATH.
+#
+# Debugging: set HERDR_MOUSE_DEBUG=1 to print one explanatory line per
+# invocation to stderr (why a move was skipped, or what it did). Output
+# contract when unset is unchanged: silence.
+set -eu
+
+# --- absolute bin resolution (GUI-PATH safe) ---
+# Respect HERDR_BIN/JQ_BIN overrides for testability (ISC-2); otherwise probe
+# well-known absolute locations before falling back to PATH.
+if [ -z "${HERDR_BIN:-}" ]; then
+  for _c in "$HOME/.local/bin/herdr" /opt/homebrew/bin/herdr /usr/local/bin/herdr; do
+    if [ -x "$_c" ]; then
+      HERDR_BIN="$_c"
+      break
+    fi
+  done
+  if [ -z "${HERDR_BIN:-}" ]; then
+    if command -v herdr >/dev/null 2>&1; then
+      HERDR_BIN="$(command -v herdr 2>/dev/null || true)"
+    fi
+  fi
+  : "${HERDR_BIN:=herdr}"
+fi
+
+if [ -z "${JQ_BIN:-}" ]; then
+  for _c in /opt/homebrew/bin/jq /usr/local/bin/jq /usr/bin/jq /bin/jq; do
+    if [ -x "$_c" ]; then
+      JQ_BIN="$_c"
+      break
+    fi
+  done
+  if [ -z "${JQ_BIN:-}" ]; then
+    if command -v jq >/dev/null 2>&1; then
+      JQ_BIN="$(command -v jq 2>/dev/null || true)"
+    fi
+  fi
+  : "${JQ_BIN:=jq}"
+fi
+
+cmd="${1:-}"
+
+# Opt-in invocation trace: if /tmp/herdr-mouse.debug exists, append one line per
+# call. Useful because OpenLogi spawns us without env or terminal — this is the
+# only way to see whether/when we ran. Delete the flag file to disable.
+if [ -f /tmp/herdr-mouse.debug ]; then
+  printf '%s cmd=%s HERDR_BIN=%s JQ_BIN=%s ppid=%s\n' "$(date +%H:%M:%S)" "${cmd:-<none>}" "${HERDR_BIN:-}" "${JQ_BIN:-}" "$PPID" >> /tmp/herdr-mouse.debug.log 2>/dev/null || true
+fi
+
+# Debug helper: stderr only, only when HERDR_MOUSE_DEBUG is non-empty.
+debug() {
+  [ -n "${HERDR_MOUSE_DEBUG:-}" ] || return 0
+  printf '[herdr-mouse] %s\n' "$1" >&2
+}
+
+case "$cmd" in
+  focus-left|focus-right|focus-up|focus-down)
+    dir=${cmd#focus-}
+    out=$("$HERDR_BIN" pane focus --direction "$dir" 2>&1) || { debug "herdr pane focus --direction $dir failed: $out"; exit 0; }
+    changed=$(printf '%s' "$out" | "$JQ_BIN" -r '.result.focus.changed // false' 2>/dev/null) || exit 0
+    if [ "$changed" = "true" ]; then
+      new=$(printf '%s' "$out" | "$JQ_BIN" -r '.result.focus.focused_pane_id // "?"' 2>/dev/null) || exit 0
+      debug "focus moved $dir -> $new"
+    else
+      reason=$(printf '%s' "$out" | "$JQ_BIN" -r '.result.focus.reason // "no_neighbor"' 2>/dev/null) || exit 0
+      debug "no-op: cannot focus $dir ($reason)"
+    fi
+    ;;
+  zoom-toggle)
+    out=$("$HERDR_BIN" pane zoom 2>&1) || { debug "herdr pane zoom failed: $out"; exit 0; }
+    zoomed=$(printf '%s' "$out" | "$JQ_BIN" -r '.result.layout.zoomed // empty' 2>/dev/null) || exit 0
+    if [ "$zoomed" = "true" ]; then debug "zoomed ON"; else debug "zoomed OFF"; fi
+    ;;
+  next-tab)
+    ws_json=$("$HERDR_BIN" workspace list 2>/dev/null) || { debug "herdr unreachable (workspace list)"; exit 0; }
+    ws_id=$(printf '%s' "$ws_json" | "$JQ_BIN" -r '.result.workspaces[] | select(.focused==true) | .workspace_id' 2>/dev/null) || { debug "cannot parse workspace list"; exit 0; }
+    [ -n "${ws_id:-}" ] || { debug "no focused workspace"; exit 0; }
+    tab_json=$("$HERDR_BIN" tab list --workspace "$ws_id" 2>/dev/null) || { debug "tab list failed"; exit 0; }
+	# shellcheck disable=SC2016 # intentional: jq program must not be expanded
+	next_id=$(printf '%s' "$tab_json" | "$JQ_BIN" -r '
+      .result.tabs | sort_by(.number) as $sorted
+      | ($sorted | length) as $len
+      | if $len <= 1 then empty
+        else
+          ($sorted | map(.tab_id)) as $ids
+          | ($sorted | to_entries | map(select(.value.focused == true)) | .[0].key) as $idx
+          | if $idx == null then empty else $ids[($idx + 1) % $len] end
+        end
+    ' 2>/dev/null) || { debug "cannot compute next tab"; exit 0; }
+    [ -n "${next_id:-}" ] || { debug "no-op: single tab in workspace $ws_id"; exit 0; }
+    if "$HERDR_BIN" tab focus "$next_id" >/dev/null 2>&1; then
+      debug "next tab -> $next_id"
+    else
+      debug "tab focus $next_id failed"
+    fi
+    ;;
+  prev-tab)
+    ws_json=$("$HERDR_BIN" workspace list 2>/dev/null) || { debug "herdr unreachable (workspace list)"; exit 0; }
+    ws_id=$(printf '%s' "$ws_json" | "$JQ_BIN" -r '.result.workspaces[] | select(.focused==true) | .workspace_id' 2>/dev/null) || { debug "cannot parse workspace list"; exit 0; }
+    [ -n "${ws_id:-}" ] || { debug "no focused workspace"; exit 0; }
+    tab_json=$("$HERDR_BIN" tab list --workspace "$ws_id" 2>/dev/null) || { debug "tab list failed"; exit 0; }
+	# shellcheck disable=SC2016 # intentional: jq program must not be expanded
+	prev_id=$(printf '%s' "$tab_json" | "$JQ_BIN" -r '
+      .result.tabs | sort_by(.number) as $sorted
+      | ($sorted | length) as $len
+      | if $len <= 1 then empty
+        else
+          ($sorted | map(.tab_id)) as $ids
+          | ($sorted | to_entries | map(select(.value.focused == true)) | .[0].key) as $idx
+          | if $idx == null then empty else $ids[($idx - 1 + $len) % $len] end
+        end
+    ' 2>/dev/null) || { debug "cannot compute prev tab"; exit 0; }
+    [ -n "${prev_id:-}" ] || { debug "no-op: single tab in workspace $ws_id"; exit 0; }
+    if "$HERDR_BIN" tab focus "$prev_id" >/dev/null 2>&1; then
+      debug "prev tab -> $prev_id"
+    else
+      debug "tab focus $prev_id failed"
+    fi
+    ;;
+  next-workspace)
+    ws_json=$("$HERDR_BIN" workspace list 2>/dev/null) || { debug "herdr unreachable (workspace list)"; exit 0; }
+	# shellcheck disable=SC2016 # intentional: jq program must not be expanded
+	next_ws=$(printf '%s' "$ws_json" | "$JQ_BIN" -r '
+      .result.workspaces
+      | length as $len
+      | if $len <= 1 then empty
+        else
+          (to_entries | map(select(.value.focused == true)) | .[0].key) as $idx
+          | if $idx == null then empty else .[($idx + 1) % $len] | .workspace_id end
+        end
+    ' 2>/dev/null) || { debug "cannot compute next workspace"; exit 0; }
+    [ -n "${next_ws:-}" ] || { debug "no-op: single workspace"; exit 0; }
+    if "$HERDR_BIN" workspace focus "$next_ws" >/dev/null 2>&1; then
+      debug "next workspace -> $next_ws"
+    else
+      debug "workspace focus $next_ws failed"
+    fi
+    ;;
+  prev-workspace)
+    ws_json=$("$HERDR_BIN" workspace list 2>/dev/null) || { debug "herdr unreachable (workspace list)"; exit 0; }
+	# shellcheck disable=SC2016 # intentional: jq program must not be expanded
+	prev_ws=$(printf '%s' "$ws_json" | "$JQ_BIN" -r '
+      .result.workspaces
+      | length as $len
+      | if $len <= 1 then empty
+        else
+          (to_entries | map(select(.value.focused == true)) | .[0].key) as $idx
+          | if $idx == null then empty else .[($idx - 1 + $len) % $len] | .workspace_id end
+        end
+    ' 2>/dev/null) || { debug "cannot compute prev workspace"; exit 0; }
+    [ -n "${prev_ws:-}" ] || { debug "no-op: single workspace"; exit 0; }
+    if "$HERDR_BIN" workspace focus "$prev_ws" >/dev/null 2>&1; then
+      debug "prev workspace -> $prev_ws"
+    else
+      debug "workspace focus $prev_ws failed"
+    fi
+    ;;
+  *)
+    # Unknown/missing subcommand — silent no-op per contract.
+    debug "unknown subcommand '${cmd:-<none>}' (expected: focus-left/right/up/down, zoom-toggle, next-tab, prev-tab)"
+    exit 0
+    ;;
+esac
+
+exit 0

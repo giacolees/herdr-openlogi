@@ -1,0 +1,16 @@
+# OpenLogi per-app binding overlay — reference snippet
+#
+# Paste under `[devices."<your-device-key>".per_app_bindings."com.mitchellh.ghostty"]`
+# in ~/.config/openlogi/config.toml. Find your device key next to `selected_device`.
+# The GUI also writes this file; edit by hand once, then validate with ./install.sh --check.
+
+Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-left" }
+Forward = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-right" }
+GestureButton = { RunShellCommand = "$HOME/.local/bin/herdr-mouse zoom-toggle" }
+DpiToggle = { RunShellCommand = "$HOME/.local/bin/herdr-mouse next-tab" }
+ThumbwheelScrollUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse prev-workspace" }
+ThumbwheelScrollDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse next-workspace" }
+
+# Gesture pad directions (add if your device exposes them and you want up/down focus):
+# GestureUp   = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-up" }
+# GestureDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-down" }
