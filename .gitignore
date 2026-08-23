@@ -1,0 +1,14 @@
+# pi session artifacts
+pi-session-*.html
+
+# backups (install.sh creates config.toml.bak.<timestamp>)
+*.bak
+
+# macOS
+.DS_Store
+
+# logs
+*.log
+
+# local debug flags (dispatcher writes /tmp/herdr-mouse.debug.log when enabled)
+herdr-mouse.debug.log
