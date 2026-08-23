@@ -4,7 +4,7 @@
 
 Canonizes the ad-hoc integration between [OpenLogi](https://github.com/openlogi/openlogi) (Logitech mouse driver) and [herdr](https://herdr.dev) (terminal workspace manager): Logitech mouse buttons and gestures drive herdr pane/tab actions, but only while the host terminal — [Ghostty](https://ghostty.org) — is focused.
 
-The **binding overlay** in OpenLogi gates every action (no script runs unless Ghostty is frontmost); a single **action script** (`bin/herdr-mouse`) translates each input into a herdr socket-API call; every failure is a **silent no-op**.
+The **Binding overlay** in OpenLogi gates every action (no script runs unless Ghostty is frontmost); a single **Dispatcher** (`bin/herdr-mouse`) translates each input into a herdr socket-API call; every failure is a **Silent no-op**.
 
 This repo is the versioned source of truth for the dispatcher script, its symlink deployment, and the OpenLogi binding overlay it depends on. It never patches OpenLogi or herdr, never auto-edits OpenLogi's app-managed config, and never adds new herdr features.
 
