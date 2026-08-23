@@ -1,0 +1,25 @@
+#!/bin/sh
+# mock-jq — POSIX sh fixture for herdr-mouse bats tests
+# Controlled via env:
+#   MOCK_JQ_FAIL=1  -> simulate jq missing (exit 127)
+# Otherwise delegates to the real jq binary.
+set -eu
+
+if [ "${MOCK_JQ_FAIL:-}" = "1" ]; then
+  echo "jq: command not found" >&2
+  exit 127
+fi
+
+# Resolve real jq without relying on PATH (GUI-PATH safe).
+for q in /opt/homebrew/bin/jq /usr/local/bin/jq /usr/bin/jq /bin/jq; do
+  if [ -x "$q" ]; then
+    exec "$q" "$@"
+  fi
+done
+
+if command -v jq >/dev/null 2>&1; then
+  exec jq "$@"
+fi
+
+echo "jq not found" >&2
+exit 127
