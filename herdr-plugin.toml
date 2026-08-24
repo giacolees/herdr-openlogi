@@ -74,7 +74,7 @@ description = "Open keybinding picker"
 command = ["bin/herdr-mouse-tui"]
 
 [[panes]]
-id = "configure"
+id = "configure-picker"
 title = "Configure keybindings"
 description = "Open keybinding picker (80% popup)"
 placement = "popup"

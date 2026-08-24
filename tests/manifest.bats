@@ -56,8 +56,13 @@ setup() {
   [ "$count" -eq 10 ]
 }
 
-@test "manifest declares configure action and pane (popup 80%)" {
+@test "manifest declares configure action and configure-picker pane (popup 80%) with unique ids" {
   grep -Eq '^[[:space:]]*id[[:space:]]*=[[:space:]]*"configure"' "$MANIFEST"
+  grep -Eq '^[[:space:]]*id[[:space:]]*=[[:space:]]*"configure-picker"' "$MANIFEST"
+  # ids must be unique (no duplicate "configure" pane)
+  count_configure_pane="$(grep -c '^[[:space:]]*id[[:space:]]*=[[:space:]]*"configure"' "$MANIFEST" || true)"
+  # should be exactly one id="configure" (the action), not two
+  [ "$count_configure_pane" -eq 1 ]
   grep -Fq 'bin/herdr-mouse-tui' "$MANIFEST"
   grep -Fq 'placement = "popup"' "$MANIFEST"
   grep -Fq 'width = "80%"' "$MANIFEST"

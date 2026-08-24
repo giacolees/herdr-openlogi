@@ -392,6 +392,7 @@ detect_device() {
 		if [ -z "$keys" ]; then
 			printf 'Error: cannot detect device — no [devices."..."] entries found in %s\n' "$OPENLOGI_CONFIG" >&2
 			printf 'Fix: run with --device "<your-device-key>"\n' >&2
+			printf 'Hint: find your device key with: grep selected_device %s\n' "$OPENLOGI_CONFIG" >&2
 			return 1
 		fi
 		num=$(printf '%s\n' "$keys" | grep -cve '^[[:space:]]*$' 2>/dev/null || printf '0')
@@ -406,11 +407,12 @@ detect_device() {
 			printf 'Error: multiple devices found in %s — ambiguous which to patch\n' "$OPENLOGI_CONFIG" >&2
 			printf '%s\n' "$keys" >&2
 			printf 'Fix: run with --device "<your-device-key>"\n' >&2
+			printf 'Hint: choose one of the keys above, or set selected_device in %s\n' "$OPENLOGI_CONFIG" >&2
 			return 1
 		fi
 	else
 		printf 'Error: OpenLogi config not found: %s\n' "$OPENLOGI_CONFIG" >&2
-		printf 'Fix: ensure OpenLogi has run once, or run with --device "<your-device-key>"\n' >&2
+		printf 'Fix: ensure OpenLogi has run once, or run with --device "<your-device-key>" to create it\n' >&2
 		return 1
 	fi
 }
@@ -418,31 +420,7 @@ detect_device() {
 # --- atomic write + backup + idempotent overlay regen (mirrors install.sh:do_apply) ---
 _tui_do_apply() {
 	explicit_device="${1:-}"
-	# Try detect_device; if config missing and no explicit device, fall back to "default" device
-	if ! device_key=$(detect_device "$explicit_device" 2>&1); then
-		_detect_err="$device_key"
-		# Fallback when OPENLOGI_CONFIG does not exist yet — create under "default" or explicit
-		if [ -n "$explicit_device" ]; then
-			device_key="$explicit_device"
-		elif [ ! -f "$OPENLOGI_CONFIG" ]; then
-			device_key="default"
-			printf 'INFO: OpenLogi config not found — creating with device "%s"\n' "$device_key" >&2
-		else
-			printf '%s\n' "$_detect_err" >&2
-			return 1
-		fi
-	fi
-	# device_key is already set on fallback path; otherwise captured from detect_device stdout
-	# When detect succeeded, device_key holds the key; when fallback, it holds fallback
-	# But detect_device stdout was captured with error output mixed — re-derive cleanly if it succeeded
-	if [ -z "${device_key:-}" ] || printf '%s' "$device_key" | grep -q '^Error:'; then
-		# re-run detect for clean output if it originally succeeded but error slipped in
-		device_key=$(detect_device "$explicit_device" 2>/dev/null || printf '%s' "default")
-	fi
-	# Final fallback safety
-	if [ -z "$device_key" ]; then
-		device_key="default"
-	fi
+	device_key=$(detect_device "$explicit_device") || return 1
 	header="[devices.\"$device_key\".per_app_bindings.\"com.mitchellh.ghostty\"]"
 	mkdir -p "$(dirname -- "$OPENLOGI_CONFIG")"
 	ts=$(date +%Y%m%d%H%M%S 2>/dev/null || date +%s 2>/dev/null || printf 'unknown')
