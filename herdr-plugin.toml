@@ -1,0 +1,68 @@
+# herdr plugin manifest — openlogi.herdr-mouse
+#
+# Makes this repo installable via `herdr plugin install giacolees/herdr-openlogi`
+# and listable on https://herdr.dev/plugins/. One [[actions]] entry per
+# Dispatcher subcommand in bin/herdr-mouse (enumerated from the case "$cmd"
+# block — nine subcommands); each command is an argv array starting with
+# bin/herdr-mouse — herdr runs it without a shell, so no shell expansion.
+
+id = "openlogi.herdr-mouse"
+name = "OpenLogi Mouse"
+version = "0.2.0"
+min_herdr_version = "0.7.0"
+description = "Logitech mouse → herdr via OpenLogi — pane focus, zoom toggle, tab and workspace cycle while Ghostty is focused"
+platforms = ["macos", "linux"]
+
+[[actions]]
+id = "focus-left"
+title = "Focus left"
+description = "Move pane focus left"
+command = ["bin/herdr-mouse", "focus-left"]
+
+[[actions]]
+id = "focus-right"
+title = "Focus right"
+description = "Move pane focus right"
+command = ["bin/herdr-mouse", "focus-right"]
+
+[[actions]]
+id = "focus-up"
+title = "Focus up"
+description = "Move pane focus up"
+command = ["bin/herdr-mouse", "focus-up"]
+
+[[actions]]
+id = "focus-down"
+title = "Focus down"
+description = "Move pane focus down"
+command = ["bin/herdr-mouse", "focus-down"]
+
+[[actions]]
+id = "zoom-toggle"
+title = "Zoom toggle"
+description = "Toggle zoom on the focused pane"
+command = ["bin/herdr-mouse", "zoom-toggle"]
+
+[[actions]]
+id = "next-tab"
+title = "Next tab"
+description = "Cycle to the next tab in the focused workspace"
+command = ["bin/herdr-mouse", "next-tab"]
+
+[[actions]]
+id = "prev-tab"
+title = "Previous tab"
+description = "Cycle to the previous tab in the focused workspace"
+command = ["bin/herdr-mouse", "prev-tab"]
+
+[[actions]]
+id = "next-workspace"
+title = "Next workspace"
+description = "Cycle to the next workspace"
+command = ["bin/herdr-mouse", "next-workspace"]
+
+[[actions]]
+id = "prev-workspace"
+title = "Previous workspace"
+description = "Cycle to the previous workspace"
+command = ["bin/herdr-mouse", "prev-workspace"]
