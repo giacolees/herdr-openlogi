@@ -21,10 +21,17 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck bats jq
 
       - name: shellcheck
-        run: shellcheck bin/herdr-mouse install.sh scripts/bootstrap.sh
+        run: |
+          shellcheck bin/herdr-mouse bin/herdr-mouse-tui \
+            bin/mouse-config install.sh scripts/bootstrap.sh
 
       - name: sh syntax check
-        run: sh -n bin/herdr-mouse && sh -n install.sh && sh -n scripts/bootstrap.sh
+        run: |
+          sh -n bin/herdr-mouse
+          sh -n bin/herdr-mouse-tui
+          sh -n bin/mouse-config
+          sh -n install.sh
+          sh -n scripts/bootstrap.sh
 
       - name: bats tests
         run: bats tests/
@@ -35,7 +42,8 @@ jobs:
           FIXTURE_HOME="$(mktemp -d)"
           export HOME="$FIXTURE_HOME"
           echo "Fixture HOME: $HOME"
-          # Bare invocation should exit non-zero with usage (symlink no longer owned by install.sh)
+          # Bare invocation should exit non-zero with usage
+          # (symlink no longer owned by install.sh)
           if ./install.sh 2>&1 | grep -q "Usage:"; then
             echo "bare usage OK"
           else
@@ -88,10 +96,13 @@ jobs:
           export HERDR_PLUGIN_CONFIG_DIR="$TMP_CFG"
           export HERDR_PLUGIN_ROOT="$PWD"
           mkdir -p "$HOME/.config/openlogi"
-          printf 'selected_device = "test-device"\n[devices."test-device"]\nname = "x"\n' > "$HOME/.config/openlogi/config.toml"
+          printf '%s\n' 'selected_device = "test-device"' \
+            '[devices."test-device"]' 'name = "x"' \
+            > "$HOME/.config/openlogi/config.toml"
           # Without flag: bootstrap must NOT patch overlay
           bash scripts/bootstrap.sh
-          if grep -q 'per_app_bindings' "$HOME/.config/openlogi/config.toml"; then
+          if grep -q 'per_app_bindings' \
+              "$HOME/.config/openlogi/config.toml"; then
             echo "FAIL: bootstrap patched without flag" >&2; exit 1
           fi
           echo "no-flag no-patch OK"
@@ -112,5 +123,6 @@ jobs:
           grep -q 'version = ' herdr-plugin.toml
           grep -q '\[\[actions\]\]' herdr-plugin.toml
           grep -q '\[\[startup\]\]' herdr-plugin.toml
+          # shellcheck disable=SC2251
           ! grep -q '\[\[build\]\]' herdr-plugin.toml
           echo "manifest sanity OK"

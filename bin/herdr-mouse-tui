@@ -1425,6 +1425,7 @@ Cancel"
 			# Remove line from config if present (minimal edit)
 			if [ -f "$KEYBINDING_CONFIG" ]; then
 				_tmp2=$(mktemp 2>/dev/null || mktemp /tmp/herdr_tui2.XXXXXX)
+				# shellcheck disable=SC2015
 				awk -v k="$_sel" 'BEGIN{in_kb=0} /^\[keybindings\]/{in_kb=1; print; next} /^\[/{in_kb=0} in_kb && $0 ~ "^[[:space:]]*"k"[[:space:]]*=" {next} {print}' "$KEYBINDING_CONFIG" >"$_tmp2" 2>/dev/null && cat "$_tmp2" >"$KEYBINDING_CONFIG" || true
 				rm -f "$_tmp2" 2>/dev/null || true
 				DIRTY=1
