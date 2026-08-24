@@ -43,3 +43,15 @@ _Avoid_: package config, plugin spec
 **Bootstrap**:
 The plugin startup hook that idempotently points the Binding overlay's command path at the installed plugin checkout, so a pure plugin install self-deploys.
 _Avoid_: installer, deploy script
+
+**Keybinding**:
+A user-configurable mapping from an OpenLogi input name (`Back`, `GestureButton`, etc.) to a Dispatcher action id (`focus-left`, `zoom-toggle`, etc.).
+_Avoid_: key map, shortcut, hotkey
+
+**Keybinding config**:
+The user-owned `[keybindings]` table in `~/.config/openlogi-herdr/config.toml` that stores Keybindings; it overrides the baked-in defaults to derive the Binding overlay.
+_Avoid_: keybindings file, custom bindings config
+
+**Keybinding picker**:
+The interactive TUI that edits the Keybinding config and re-derives the Binding overlay via the same generation path as `install.sh --apply`.
+_Avoid_: keybinding UI, config editor, keybinding TUI

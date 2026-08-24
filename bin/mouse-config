@@ -1,0 +1,19 @@
+#!/bin/sh
+# mouse-config — short alias for keybinding picker
+# Tries herdr popup first (when herdr is running), falls back to ./install.sh --tui
+set -eu
+SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+REPO_ROOT=$(CDPATH='' cd -- "$SCRIPT_DIR/.." && pwd)
+
+# If herdr is available and plugin is linked, try pane popup (has /dev/tty)
+# For --help/--dry-run, fall back to direct TUI so help prints.
+case "${1:-}" in
+  --help|-h|--dry-run|--pick) exec "$REPO_ROOT/install.sh" --tui "$@" ;;
+esac
+if command -v herdr >/dev/null 2>&1; then
+  if herdr plugin pane open --plugin openlogi.herdr-mouse --entrypoint configure-picker 2>/dev/null; then
+    exit 0
+  fi
+fi
+# Fallback: direct TUI
+exec "$REPO_ROOT/install.sh" --tui "$@"

@@ -51,9 +51,24 @@ setup() {
   [ -x "$REPO_ROOT/scripts/bootstrap.sh" ]
 }
 
-@test "manifest declares nine [[actions]]" {
+@test "manifest declares ten [[actions]] (nine Dispatcher + configure)" {
   count="$(grep -c '^\[\[actions\]\]' "$MANIFEST" || true)"
-  [ "$count" -eq 9 ]
+  [ "$count" -eq 10 ]
+}
+
+@test "manifest declares configure action and configure-picker pane (popup 80%) with unique ids" {
+  grep -Eq '^[[:space:]]*id[[:space:]]*=[[:space:]]*"configure"' "$MANIFEST"
+  grep -Eq '^[[:space:]]*id[[:space:]]*=[[:space:]]*"configure-picker"' "$MANIFEST"
+  # ids must be unique (no duplicate "configure" pane)
+  count_configure_pane="$(grep -c '^[[:space:]]*id[[:space:]]*=[[:space:]]*"configure"' "$MANIFEST" || true)"
+  # should be exactly one id="configure" (the action), not two
+  [ "$count_configure_pane" -eq 1 ]
+  grep -Fq 'bin/herdr-mouse-tui' "$MANIFEST"
+  grep -Fq 'placement = "popup"' "$MANIFEST"
+  grep -Fq 'width = "80%"' "$MANIFEST"
+  grep -Fq 'height = "80%"' "$MANIFEST"
+  # no default keys.command shipped
+  ! grep -Eq '^[[:space:]]*\[\[keys\.command\]\]' "$MANIFEST"
 }
 
 @test "manifest declares all nine Dispatcher subcommands" {
@@ -62,23 +77,32 @@ setup() {
   done
 }
 
-@test "every action command starts with bin/herdr-mouse" {
-  # Count action commands vs those containing bin/herdr-mouse as first argv.
-  # Total command lines is actions (9) + startup (1) = 10.
+@test "every action/pane command starts with bin/herdr-mouse" {
+  # Total: 10 actions + 1 pane + 1 startup = 12; 10 actions are bin/herdr-mouse*, pane wraps via sh -c with HERDR_PLUGIN_ROOT
   total="$(grep -c '^[[:space:]]*command[[:space:]]*=' "$MANIFEST" || true)"
-  ok="$(grep -c 'command[[:space:]]*=[[:space:]]*\["bin/herdr-mouse"' "$MANIFEST" || true)"
+  ok="$(grep -c 'command[[:space:]]*=[[:space:]]*\["bin/herdr-mouse' "$MANIFEST" || true)"
+  pane_sh="$(grep -c 'command[[:space:]]*=[[:space:]]*\["sh"' "$MANIFEST" || true)"
   startup="$(grep -c 'command[[:space:]]*=[[:space:]]*\["scripts/bootstrap.sh"' "$MANIFEST" || true)"
-  [ "$total" -eq 10 ]
-  [ "$ok" -eq 9 ]
+  [ "$total" -eq 12 ]
+  [ "$ok" -eq 10 ]
+  [ "$pane_sh" -eq 1 ]
   [ "$startup" -eq 1 ]
+  # pane sh wrapper must still reference bin/herdr-mouse-tui via HERDR_PLUGIN_ROOT
+  grep -Fq 'HERDR_PLUGIN_ROOT/bin/herdr-mouse-tui' "$MANIFEST"
 }
 
 @test "every action argv[0] resolves to an executable inside the repo" {
   # Extract first argv element from each command line and verify it is executable.
+  # Pane uses sh wrapper with HERDR_PLUGIN_ROOT, so allow sh as argv0 and verify the embedded path.
   while IFS= read -r line; do
     # Pull first quoted string inside the array brackets.
     argv0="$(printf '%s\n' "$line" | sed -n 's/.*\[\s*"\([^"]*\)".*/\1/p')"
     [ -n "$argv0" ]
+    if [ "$argv0" = "sh" ]; then
+      # sh wrapper must embed HERDR_PLUGIN_ROOT/bin/herdr-mouse-tui
+      echo "$line" | grep -Fq 'HERDR_PLUGIN_ROOT/bin/herdr-mouse-tui' || { echo "sh wrapper missing HERDR_PLUGIN_ROOT path: $line" >&2; false; }
+      continue
+    fi
     # Must be a repo-relative path.
     case "$argv0" in
       /*) echo "argv[0] must be repo-relative, got: $argv0" >&2; false ;;

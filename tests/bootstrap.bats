@@ -134,3 +134,228 @@ teardown() {
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }
+
+# --- overlay auto-patch (ISC-1..ISC-7 via Bootstrap, ISC-5 lenient) ----------
+
+@test "bootstrap with auto-apply and no custom file writes defaults (ISC-1)" {
+  mkdir -p "$HOME/.config/openlogi"
+  cat > "$HOME/.config/openlogi/config.toml" <<'EOF'
+selected_device = "test-device"
+[devices."test-device"]
+dummy = 1
+EOF
+  cfg_dir="$TMPDIR/cfg"
+  mkdir -p "$cfg_dir"
+  touch "$cfg_dir/auto-apply"
+  run env HOME="$HOME" HERDR_PLUGIN_ROOT="$HERDR_PLUGIN_ROOT" HERDR_PLUGIN_CONFIG_DIR="$cfg_dir" "$BOOTSTRAP"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -Fq '[devices."test-device".per_app_bindings."com.mitchellh.ghostty"]' "$HOME/.config/openlogi/config.toml"
+  grep -Fq 'Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-left" }' "$HOME/.config/openlogi/config.toml"
+  grep -Fq 'Forward = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-right" }' "$HOME/.config/openlogi/config.toml"
+  ! grep -Fq 'GestureUp =' "$HOME/.config/openlogi/config.toml"
+}
+
+@test "bootstrap with auto-apply and partial custom merge (ISC-2)" {
+  mkdir -p "$HOME/.config/openlogi"
+  cat > "$HOME/.config/openlogi/config.toml" <<'EOF'
+selected_device = "test-device"
+[devices."test-device"]
+dummy = 1
+EOF
+  mkdir -p "$HOME/.config/openlogi-herdr"
+  cat > "$HOME/.config/openlogi-herdr/config.toml" <<'EOF'
+[keybindings]
+Back = "zoom-toggle"
+EOF
+  cfg_dir="$TMPDIR/cfg"
+  mkdir -p "$cfg_dir"
+  touch "$cfg_dir/auto-apply"
+  run env HOME="$HOME" HERDR_PLUGIN_ROOT="$HERDR_PLUGIN_ROOT" HERDR_PLUGIN_CONFIG_DIR="$cfg_dir" "$BOOTSTRAP"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -Fq 'Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse zoom-toggle" }' "$HOME/.config/openlogi/config.toml"
+  grep -Fq 'Forward = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-right" }' "$HOME/.config/openlogi/config.toml"
+}
+
+@test "bootstrap with auto-apply and optional GestureUp (ISC-3)" {
+  mkdir -p "$HOME/.config/openlogi"
+  cat > "$HOME/.config/openlogi/config.toml" <<'EOF'
+selected_device = "test-device"
+[devices."test-device"]
+dummy = 1
+EOF
+  mkdir -p "$HOME/.config/openlogi-herdr"
+  cat > "$HOME/.config/openlogi-herdr/config.toml" <<'EOF'
+[keybindings]
+GestureUp = "focus-up"
+GestureDown = "focus-down"
+EOF
+  cfg_dir="$TMPDIR/cfg"
+  mkdir -p "$cfg_dir"
+  touch "$cfg_dir/auto-apply"
+  run env HOME="$HOME" HERDR_PLUGIN_ROOT="$HERDR_PLUGIN_ROOT" HERDR_PLUGIN_CONFIG_DIR="$cfg_dir" "$BOOTSTRAP"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -Fq 'GestureUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-up" }' "$HOME/.config/openlogi/config.toml"
+  grep -Fq 'GestureDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-down" }' "$HOME/.config/openlogi/config.toml"
+}
+
+@test "bootstrap ignores invalid keybinding and uses defaults for bad entries (ISC-5 unknown action)" {
+  mkdir -p "$HOME/.config/openlogi"
+  cat > "$HOME/.config/openlogi/config.toml" <<'EOF'
+selected_device = "test-device"
+[devices."test-device"]
+dummy = 1
+EOF
+  mkdir -p "$HOME/.config/openlogi-herdr"
+  cat > "$HOME/.config/openlogi-herdr/config.toml" <<'EOF'
+[keybindings]
+Back = "nope"
+Forward = "focus-right"
+EOF
+  cfg_dir="$TMPDIR/cfg"
+  mkdir -p "$cfg_dir"
+  touch "$cfg_dir/auto-apply"
+  run env HOME="$HOME" HERDR_PLUGIN_ROOT="$HERDR_PLUGIN_ROOT" HERDR_PLUGIN_CONFIG_DIR="$cfg_dir" "$BOOTSTRAP"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -Fq 'Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-left" }' "$HOME/.config/openlogi/config.toml"
+  grep -Fq 'Forward = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-right" }' "$HOME/.config/openlogi/config.toml"
+}
+
+@test "bootstrap ignores invalid keybinding unknown input (ISC-5)" {
+  mkdir -p "$HOME/.config/openlogi"
+  cat > "$HOME/.config/openlogi/config.toml" <<'EOF'
+selected_device = "test-device"
+[devices."test-device"]
+dummy = 1
+EOF
+  mkdir -p "$HOME/.config/openlogi-herdr"
+  cat > "$HOME/.config/openlogi-herdr/config.toml" <<'EOF'
+[keybindings]
+MyButton = "focus-left"
+Back = "zoom-toggle"
+EOF
+  cfg_dir="$TMPDIR/cfg"
+  mkdir -p "$cfg_dir"
+  touch "$cfg_dir/auto-apply"
+  run env HOME="$HOME" HERDR_PLUGIN_ROOT="$HERDR_PLUGIN_ROOT" HERDR_PLUGIN_CONFIG_DIR="$cfg_dir" "$BOOTSTRAP"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -Fq 'Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse zoom-toggle" }' "$HOME/.config/openlogi/config.toml"
+}
+
+@test "bootstrap ignores empty string action and falls back to default (ISC-5)" {
+  mkdir -p "$HOME/.config/openlogi"
+  cat > "$HOME/.config/openlogi/config.toml" <<'EOF'
+selected_device = "test-device"
+[devices."test-device"]
+dummy = 1
+EOF
+  mkdir -p "$HOME/.config/openlogi-herdr"
+  cat > "$HOME/.config/openlogi-herdr/config.toml" <<'EOF'
+[keybindings]
+Back = ""
+EOF
+  cfg_dir="$TMPDIR/cfg"
+  mkdir -p "$cfg_dir"
+  touch "$cfg_dir/auto-apply"
+  run env HOME="$HOME" HERDR_PLUGIN_ROOT="$HERDR_PLUGIN_ROOT" HERDR_PLUGIN_CONFIG_DIR="$cfg_dir" "$BOOTSTRAP"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -Fq 'Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-left" }' "$HOME/.config/openlogi/config.toml"
+}
+
+@test "bootstrap with auto-apply still succeeds silently when keybinding file has only invalid entries" {
+  mkdir -p "$HOME/.config/openlogi"
+  cat > "$HOME/.config/openlogi/config.toml" <<'EOF'
+selected_device = "test-device"
+[devices."test-device"]
+dummy = 1
+EOF
+  mkdir -p "$HOME/.config/openlogi-herdr"
+  cat > "$HOME/.config/openlogi-herdr/config.toml" <<'EOF'
+[keybindings]
+Back = "nope"
+MyButton = "focus-left"
+EOF
+  cfg_dir="$TMPDIR/cfg"
+  mkdir -p "$cfg_dir"
+  touch "$cfg_dir/auto-apply"
+  run env HOME="$HOME" HERDR_PLUGIN_ROOT="$HERDR_PLUGIN_ROOT" HERDR_PLUGIN_CONFIG_DIR="$cfg_dir" "$BOOTSTRAP"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -Fq 'Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-left" }' "$HOME/.config/openlogi/config.toml"
+}
+
+@test "bootstrap is idempotent for overlay (second run no change, silent)" {
+  mkdir -p "$HOME/.config/openlogi"
+  cat > "$HOME/.config/openlogi/config.toml" <<'EOF'
+selected_device = "test-device"
+[devices."test-device"]
+dummy = 1
+EOF
+  mkdir -p "$HOME/.config/openlogi-herdr"
+  cat > "$HOME/.config/openlogi-herdr/config.toml" <<'EOF'
+[keybindings]
+Back = "zoom-toggle"
+EOF
+  cfg_dir="$TMPDIR/cfg"
+  mkdir -p "$cfg_dir"
+  touch "$cfg_dir/auto-apply"
+  run env HOME="$HOME" HERDR_PLUGIN_ROOT="$HERDR_PLUGIN_ROOT" HERDR_PLUGIN_CONFIG_DIR="$cfg_dir" "$BOOTSTRAP"
+  [ "$status" -eq 0 ]
+  cp "$HOME/.config/openlogi/config.toml" "$TMPDIR/snap.toml"
+  run env HOME="$HOME" HERDR_PLUGIN_ROOT="$HERDR_PLUGIN_ROOT" HERDR_PLUGIN_CONFIG_DIR="$cfg_dir" "$BOOTSTRAP"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  diff "$TMPDIR/snap.toml" "$HOME/.config/openlogi/config.toml"
+}
+
+@test "bootstrap with auto-apply creates backup on overlay patch" {
+  mkdir -p "$HOME/.config/openlogi"
+  cat > "$HOME/.config/openlogi/config.toml" <<'EOF'
+selected_device = "test-device"
+[devices."test-device"]
+dummy = 1
+EOF
+  cfg_dir="$TMPDIR/cfg"
+  mkdir -p "$cfg_dir"
+  touch "$cfg_dir/auto-apply"
+  run env HOME="$HOME" HERDR_PLUGIN_ROOT="$HERDR_PLUGIN_ROOT" HERDR_PLUGIN_CONFIG_DIR="$cfg_dir" "$BOOTSTRAP"
+  [ "$status" -eq 0 ]
+  count="$(ls "$HOME/.config/openlogi/config.toml.bak."* 2>/dev/null | wc -l | tr -d ' ')"
+  [ "$count" -ge 1 ]
+}
+
+@test "bootstrap without auto-apply does not patch overlay" {
+  mkdir -p "$HOME/.config/openlogi"
+  cat > "$HOME/.config/openlogi/config.toml" <<'EOF'
+selected_device = "test-device"
+[devices."test-device"]
+dummy = 1
+EOF
+  cfg_dir="$TMPDIR/cfg"
+  mkdir -p "$cfg_dir"
+  # no auto-apply file
+  run env HOME="$HOME" HERDR_PLUGIN_ROOT="$HERDR_PLUGIN_ROOT" HERDR_PLUGIN_CONFIG_DIR="$cfg_dir" "$BOOTSTRAP"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  ! grep -q 'per_app_bindings' "$HOME/.config/openlogi/config.toml"
+}
+
+@test "bootstrap with auto-apply and explicit device key from flag file" {
+  mkdir -p "$HOME/.config/openlogi"
+  cat > "$HOME/.config/openlogi/config.toml" <<'EOF'
+[devices."ignored"]
+dummy = 1
+EOF
+  cfg_dir="$TMPDIR/cfg"
+  mkdir -p "$cfg_dir"
+  printf 'explicit-device\n' > "$cfg_dir/auto-apply"
+  run env HOME="$HOME" HERDR_PLUGIN_ROOT="$HERDR_PLUGIN_ROOT" HERDR_PLUGIN_CONFIG_DIR="$cfg_dir" "$BOOTSTRAP"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -Fq '[devices."explicit-device".per_app_bindings."com.mitchellh.ghostty"]' "$HOME/.config/openlogi/config.toml"
+}

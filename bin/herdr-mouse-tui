@@ -1,0 +1,1472 @@
+#!/bin/sh
+# herdr-mouse-tui — Keybinding picker TUI for openlogi-herdr
+# POSIX sh only. Shows 8-row Keybinding table (Input | Effective action | Source)
+# with fzf picker when present, numbered select fallback otherwise.
+# Atomic write + overlay regen mirrors install.sh --apply path.
+set -eu
+# shellcheck disable=SC2015
+
+KEYBINDING_CONFIG="${HOME}/.config/openlogi-herdr/config.toml"
+# shellcheck disable=SC2034
+OPENLOGI_CONFIG="${HOME}/.config/openlogi/config.toml"
+VALID_INPUTS="Back Forward GestureButton DpiToggle ThumbwheelScrollUp ThumbwheelScrollDown GestureUp GestureDown"
+VALID_ACTIONS="focus-left focus-right focus-up focus-down zoom-toggle next-tab prev-tab next-workspace prev-workspace"
+
+is_valid_input() {
+	case " $VALID_INPUTS " in
+	*" $1 "*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+is_valid_action() {
+	case " $VALID_ACTIONS " in
+	*" $1 "*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+# --- defaults ---------------------------------------------------------------
+_default_for_input() {
+	case "$1" in
+	Back) printf 'focus-left' ;;
+	Forward) printf 'focus-right' ;;
+	GestureButton) printf 'zoom-toggle' ;;
+	DpiToggle) printf 'next-tab' ;;
+	ThumbwheelScrollUp) printf 'prev-workspace' ;;
+	ThumbwheelScrollDown) printf 'next-workspace' ;;
+	GestureUp) printf '' ;;
+	GestureDown) printf '' ;;
+	*) printf '' ;;
+	esac
+}
+
+_action_desc() {
+	case "$1" in
+	focus-left) printf 'Move focus left' ;;
+	focus-right) printf 'Move focus right' ;;
+	focus-up) printf 'Move focus up' ;;
+	focus-down) printf 'Move focus down' ;;
+	zoom-toggle) printf 'Toggle zoom' ;;
+	next-tab) printf 'Cycle to next tab' ;;
+	prev-tab) printf 'Cycle to previous tab' ;;
+	next-workspace) printf 'Cycle to next workspace' ;;
+	prev-workspace) printf 'Cycle to previous workspace' ;;
+	*) printf '' ;;
+	esac
+}
+
+_has_fzf() {
+	command -v fzf >/dev/null 2>&1
+}
+
+# --- effective action (merge-with-defaults, strict validation) --------------
+_get_effective_action() {
+	_ge_input="$1"
+	_ge_default="$2"
+	if [ ! -f "$KEYBINDING_CONFIG" ]; then
+		printf '%s' "$_ge_default"
+		return 0
+	fi
+	_ge_found=""
+	_ge_in_section=0
+	while IFS= read -r _ge_raw || [ -n "$_ge_raw" ]; do
+		_ge_line=$(printf '%s' "$_ge_raw" | tr -d '\r')
+		_ge_trim=$(printf '%s' "$_ge_line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_ge_trim" in
+		""|\#*) continue ;;
+		esac
+		case "$_ge_trim" in
+		\[*\]*)
+			_ge_sec=$(printf '%s' "$_ge_trim" | sed 's/[[:space:]]*#.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+			if [ "$_ge_sec" = "[keybindings]" ]; then
+				_ge_in_section=1
+			else
+				_ge_in_section=0
+			fi
+			continue
+			;;
+		esac
+		if [ "$_ge_in_section" -eq 0 ]; then
+			continue
+		fi
+		_ge_no_comment=$(printf '%s' "$_ge_line" | sed 's/#.*//')
+		_ge_stripped=$(printf '%s' "$_ge_no_comment" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_ge_stripped" in
+		""|\#*) continue ;;
+		*"="*) ;;
+		*) continue ;;
+		esac
+		_ge_key=$(printf '%s' "$_ge_stripped" | sed -E 's/^([^=]+)=.*/\1/' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		if [ "$_ge_key" != "$_ge_input" ]; then
+			continue
+		fi
+		_ge_val_raw=$(printf '%s' "$_ge_stripped" | sed -E 's/^[^=]*=[[:space:]]*//')
+		_ge_val_trim=$(printf '%s' "$_ge_val_raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		_ge_first=$(printf '%s' "$_ge_val_trim" | cut -c1 2>/dev/null || printf '%s' "$_ge_val_trim" | sed 's/^\(.\)/\1/')
+		if [ "$_ge_first" = '"' ]; then
+			_ge_val=$(printf '%s' "$_ge_val_trim" | sed -E 's/^"([^"]*)".*/\1/')
+		elif [ "$_ge_first" = "'" ]; then
+			_ge_val=$(printf '%s' "$_ge_val_trim" | sed -E "s/^'([^']*)'.*/\1/")
+		else
+			_ge_val=$(printf '%s' "$_ge_val_trim" | sed -E 's/[[:space:]].*//')
+		fi
+		if is_valid_input "$_ge_key" && [ -n "$_ge_val" ] && is_valid_action "$_ge_val"; then
+			_ge_found="$_ge_val"
+		fi
+	done <"$KEYBINDING_CONFIG"
+	if [ -n "$_ge_found" ]; then
+		printf '%s' "$_ge_found"
+	else
+		printf '%s' "$_ge_default"
+	fi
+}
+
+_get_source() {
+	_gs_input="$1"
+	if [ ! -f "$KEYBINDING_CONFIG" ]; then
+		printf 'default'
+		return 0
+	fi
+	_gs_in_section=0
+	while IFS= read -r _gs_raw || [ -n "$_gs_raw" ]; do
+		_gs_line=$(printf '%s' "$_gs_raw" | tr -d '\r')
+		_gs_trim=$(printf '%s' "$_gs_line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_gs_trim" in
+		""|\#*) continue ;;
+		esac
+		case "$_gs_trim" in
+		\[*\]*)
+			_gs_sec=$(printf '%s' "$_gs_trim" | sed 's/[[:space:]]*#.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+			if [ "$_gs_sec" = "[keybindings]" ]; then
+				_gs_in_section=1
+			else
+				_gs_in_section=0
+			fi
+			continue
+			;;
+		esac
+		if [ "$_gs_in_section" -eq 0 ]; then
+			continue
+		fi
+		_gs_no_comment=$(printf '%s' "$_gs_line" | sed 's/#.*//')
+		_gs_stripped=$(printf '%s' "$_gs_no_comment" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_gs_stripped" in
+		""|\#*) continue ;;
+		*"="*) ;;
+		*) continue ;;
+		esac
+		_gs_key=$(printf '%s' "$_gs_stripped" | sed -E 's/^([^=]+)=.*/\1/' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		if [ "$_gs_key" != "$_gs_input" ]; then
+			continue
+		fi
+		_gs_val_raw=$(printf '%s' "$_gs_stripped" | sed -E 's/^[^=]*=[[:space:]]*//')
+		_gs_val_trim=$(printf '%s' "$_gs_val_raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		_gs_first=$(printf '%s' "$_gs_val_trim" | cut -c1 2>/dev/null || printf '%s' "$_gs_val_trim" | sed 's/^\(.\)/\1/')
+		if [ "$_gs_first" = '"' ]; then
+			_gs_val=$(printf '%s' "$_gs_val_trim" | sed -E 's/^"([^"]*)".*/\1/')
+		elif [ "$_gs_first" = "'" ]; then
+			_gs_val=$(printf '%s' "$_gs_val_trim" | sed -E "s/^'([^']*)'.*/\1/")
+		else
+			_gs_val=$(printf '%s' "$_gs_val_trim" | sed -E 's/[[:space:]].*//')
+		fi
+		if is_valid_input "$_gs_key" && [ -n "$_gs_val" ] && is_valid_action "$_gs_val"; then
+			printf 'custom'
+			return 0
+		fi
+		# found but invalid -> treat as default for source (warning handled separately)
+	done <"$KEYBINDING_CONFIG"
+	printf 'default'
+}
+
+_has_invalid_row() {
+	# echo 1 if this input has an invalid entry in the config
+	_hir_input="$1"
+	if [ ! -f "$KEYBINDING_CONFIG" ]; then
+		return 1
+	fi
+	_hir_in_section=0
+	while IFS= read -r _hir_raw || [ -n "$_hir_raw" ]; do
+		_hir_line=$(printf '%s' "$_hir_raw" | tr -d '\r')
+		_hir_trim=$(printf '%s' "$_hir_line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_hir_trim" in
+		""|\#*) continue ;;
+		esac
+		case "$_hir_trim" in
+		\[*\]*)
+			_hir_sec=$(printf '%s' "$_hir_trim" | sed 's/[[:space:]]*#.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+			if [ "$_hir_sec" = "[keybindings]" ]; then
+				_hir_in_section=1
+			else
+				_hir_in_section=0
+			fi
+			continue
+			;;
+		esac
+		if [ "$_hir_in_section" -eq 0 ]; then
+			continue
+		fi
+		_hir_no_comment=$(printf '%s' "$_hir_line" | sed 's/#.*//')
+		_hir_stripped=$(printf '%s' "$_hir_no_comment" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_hir_stripped" in
+		*"="*) ;;
+		*) continue ;;
+		esac
+		_hir_key=$(printf '%s' "$_hir_stripped" | sed -E 's/^([^=]+)=.*/\1/' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		if [ "$_hir_key" != "$_hir_input" ]; then
+			continue
+		fi
+		_hir_val_raw=$(printf '%s' "$_hir_stripped" | sed -E 's/^[^=]*=[[:space:]]*//')
+		_hir_val_trim=$(printf '%s' "$_hir_val_raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		_hir_first=$(printf '%s' "$_hir_val_trim" | cut -c1 2>/dev/null || printf '%s' "$_hir_val_trim" | sed 's/^\(.\)/\1/')
+		if [ "$_hir_first" = '"' ]; then
+			_hir_val=$(printf '%s' "$_hir_val_trim" | sed -E 's/^"([^"]*)".*/\1/')
+		elif [ "$_hir_first" = "'" ]; then
+			_hir_val=$(printf '%s' "$_hir_val_trim" | sed -E "s/^'([^']*)'.*/\1/")
+		else
+			_hir_val=$(printf '%s' "$_hir_val_trim" | sed -E 's/[[:space:]].*//')
+		fi
+		if ! is_valid_input "$_hir_key"; then
+			return 0
+		fi
+		if [ -z "$_hir_val" ] || ! is_valid_action "$_hir_val"; then
+			return 0
+		fi
+		return 1
+	done <"$KEYBINDING_CONFIG"
+	return 1
+}
+
+_validate_config() {
+	# returns 0 if valid, 1 if invalid; prints FAIL banner to stderr when invalid
+	if [ ! -f "$KEYBINDING_CONFIG" ]; then
+		return 0
+	fi
+	_v_status=0
+	_in_section=0
+	while IFS= read -r _raw || [ -n "$_raw" ]; do
+		_line=$(printf '%s' "$_raw" | tr -d '\r')
+		_trimmed=$(printf '%s' "$_line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_trimmed" in
+		""|\#*) continue ;;
+		esac
+		case "$_trimmed" in
+		\[*\]*)
+			_sec=$(printf '%s' "$_trimmed" | sed 's/[[:space:]]*#.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+			if [ "$_sec" = "[keybindings]" ]; then
+				_in_section=1
+			else
+				_in_section=0
+			fi
+			continue
+			;;
+		esac
+		if [ "$_in_section" -eq 0 ]; then
+			continue
+		fi
+		_no_comment=$(printf '%s' "$_line" | sed 's/#.*//')
+		_stripped=$(printf '%s' "$_no_comment" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_stripped" in
+		""|\#*) continue ;;
+		esac
+		case "$_stripped" in
+		*"="*) ;;
+		*) continue ;;
+		esac
+		_key=$(printf '%s' "$_stripped" | sed -E 's/^([^=]+)=.*/\1/' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		_val_raw=$(printf '%s' "$_stripped" | sed -E 's/^[^=]*=[[:space:]]*//')
+		_val_trim=$(printf '%s' "$_val_raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		_first=$(printf '%s' "$_val_trim" | cut -c1 2>/dev/null || printf '%s' "$_val_trim" | sed 's/^\(.\)/\1/')
+		if [ "$_first" = '"' ]; then
+			_val=$(printf '%s' "$_val_trim" | sed -E 's/^"([^"]*)".*/\1/')
+		elif [ "$_first" = "'" ]; then
+			_val=$(printf '%s' "$_val_trim" | sed -E "s/^'([^']*)'.*/\1/")
+		else
+			_val=$(printf '%s' "$_val_trim" | sed -E 's/[[:space:]].*//')
+		fi
+		if ! is_valid_input "$_key"; then
+			printf 'FAIL: Keybinding config %s: unknown input '\''%s'\''\n' "$KEYBINDING_CONFIG" "$_key" >&2
+			printf 'Valid inputs: Back, Forward, GestureButton, DpiToggle, ThumbwheelScrollUp, ThumbwheelScrollDown, GestureUp, GestureDown\n' >&2
+			_v_status=1
+			continue
+		fi
+		if [ -z "$_val" ] || ! is_valid_action "$_val"; then
+			if [ -z "$_val" ]; then
+				printf 'FAIL: Keybinding config %s: empty or unknown action for input '\''%s'\''\n' "$KEYBINDING_CONFIG" "$_key" >&2
+			else
+				printf 'FAIL: Keybinding config %s: unknown action '\''%s'\'' for input '\''%s'\''\n' "$KEYBINDING_CONFIG" "$_val" "$_key" >&2
+			fi
+			printf 'Valid actions: focus-left, focus-right, focus-up, focus-down, zoom-toggle, next-tab, prev-tab, next-workspace, prev-workspace\n' >&2
+			_v_status=1
+			continue
+		fi
+	done <"$KEYBINDING_CONFIG"
+	if [ "$_v_status" -eq 1 ]; then
+		printf 'Valid inputs: %s\n' "$VALID_INPUTS" >&2
+		printf 'Valid actions: %s\n' "$VALID_ACTIONS" >&2
+		return 1
+	fi
+	return 0
+}
+
+usage() {
+	cat <<'USAGE'
+Keybinding picker — interactive TUI for openlogi-herdr keybindings
+
+Usage: herdr-mouse-tui [--help] [--dry-run] [--pick <input>]
+       herdr-mouse-tui --non-interactive [--home <dir>] [--device <key>] [--set <Input=action>] [--check] [--reset-all] [--save] [--dirty-check]
+
+  --help         Show this help (Keybinding picker description)
+  --dry-run      Print 8-row Keybinding table (Input | Effective action | Source) and exit
+  --pick <input> Show action picker for one input (fzf when present, select fallback)
+  (no args)      Launch interactive picker (↑/↓ move, Enter pick, s Save+Apply, R Reset all, q Cancel, ? Help)
+  --non-interactive  Non-interactive mode (no prompts, for scripts/tests)
+  --home <dir>   Override HOME for config paths (test fixture isolation)
+  --device <key> Explicit device key when auto-detect is ambiguous
+  --set <Input=action>  Set one Keybinding (repeatable, e.g. --set Back=zoom-toggle)
+  --check        Validate Keybinding config and overlay (like install.sh --check)
+  --reset-all    Delete Keybinding config to revert to defaults
+  --save         Save+Apply current config (validates, blocks on invalid, prompts reload y-only)
+  --dirty-check  Simulate dirty quit prompt Save changes? [y/N/c] (for tests)
+
+Inputs (8): Back, Forward, GestureButton, DpiToggle, ThumbwheelScrollUp, ThumbwheelScrollDown, GestureUp, GestureDown
+Actions (9): focus-left, focus-right, focus-up, focus-down, zoom-toggle, next-tab, prev-tab, next-workspace, prev-workspace
+
+Keybinding picker edits ~/.config/openlogi-herdr/config.toml [keybindings] and re-derives
+the Binding overlay in ~/.config/openlogi/config.toml (same install.sh --apply path).
+
+Footer: ↑/↓ move  Enter pick  s Save+Apply  R Reset all  q Cancel  ? Help
+Tip: brew install fzf for fuzzy picker (falls back to numbered select)
+
+USAGE
+}
+
+# --- overlay generation + device detection (mirrors install.sh pattern) ---------
+get_overlay_body() {
+	_eff_back=$(_get_effective_action "Back" "focus-left")
+	_eff_forward=$(_get_effective_action "Forward" "focus-right")
+	_eff_gesture_button=$(_get_effective_action "GestureButton" "zoom-toggle")
+	_eff_dpi_toggle=$(_get_effective_action "DpiToggle" "next-tab")
+	_eff_thumb_up=$(_get_effective_action "ThumbwheelScrollUp" "prev-workspace")
+	_eff_thumb_down=$(_get_effective_action "ThumbwheelScrollDown" "next-workspace")
+	_eff_gesture_up=$(_get_effective_action "GestureUp" "")
+	_eff_gesture_down=$(_get_effective_action "GestureDown" "")
+	# shellcheck disable=SC2016
+	printf 'Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_back"
+	# shellcheck disable=SC2016
+	printf 'Forward = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_forward"
+	# shellcheck disable=SC2016
+	printf 'GestureButton = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_gesture_button"
+	# shellcheck disable=SC2016
+	printf 'DpiToggle = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_dpi_toggle"
+	# shellcheck disable=SC2016
+	printf 'ThumbwheelScrollUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_thumb_up"
+	# shellcheck disable=SC2016
+	printf 'ThumbwheelScrollDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_thumb_down"
+	if [ -n "$_eff_gesture_up" ]; then
+		# shellcheck disable=SC2016
+		printf 'GestureUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_gesture_up"
+	fi
+	if [ -n "$_eff_gesture_down" ]; then
+		# shellcheck disable=SC2016
+		printf 'GestureDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_gesture_down"
+	fi
+}
+
+detect_device() {
+	explicit_device="$1"
+	if [ -n "$explicit_device" ]; then
+		printf '%s' "$explicit_device"
+		return 0
+	fi
+	if [ -f "$OPENLOGI_CONFIG" ]; then
+		sel=$(grep -E '^[[:space:]]*selected_device[[:space:]]*=' "$OPENLOGI_CONFIG" 2>/dev/null | head -n 1 | sed -E 's/^[[:space:]]*selected_device[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/' 2>/dev/null || true)
+		if printf '%s' "$sel" | grep -q 'selected_device' 2>/dev/null; then
+			sel=""
+		fi
+		if [ -n "$sel" ]; then
+			printf '%s' "$sel"
+			return 0
+		fi
+		keys=$(grep -E '^\[devices\."[^"]+"' "$OPENLOGI_CONFIG" 2>/dev/null | sed -E 's/^\[devices\."([^"]+)".*/\1/' 2>/dev/null | sort -u 2>/dev/null || true)
+		if [ -z "$keys" ]; then
+			printf 'Error: cannot detect device — no [devices."..."] entries found in %s\n' "$OPENLOGI_CONFIG" >&2
+			printf 'Fix: run with --device "<your-device-key>"\n' >&2
+			printf 'Hint: find your device key with: grep selected_device %s\n' "$OPENLOGI_CONFIG" >&2
+			return 1
+		fi
+		num=$(printf '%s\n' "$keys" | grep -cve '^[[:space:]]*$' 2>/dev/null || printf '0')
+		if [ "$num" -eq 0 ]; then
+			num=$(printf '%s\n' "$keys" | wc -l | tr -d ' ' 2>/dev/null || printf '1')
+		fi
+		if [ "$num" -eq 1 ]; then
+			single=$(printf '%s\n' "$keys" | head -n 1)
+			printf '%s' "$single"
+			return 0
+		else
+			printf 'Error: multiple devices found in %s — ambiguous which to patch\n' "$OPENLOGI_CONFIG" >&2
+			printf '%s\n' "$keys" >&2
+			printf 'Fix: run with --device "<your-device-key>"\n' >&2
+			printf 'Hint: choose one of the keys above, or set selected_device in %s\n' "$OPENLOGI_CONFIG" >&2
+			return 1
+		fi
+	else
+		printf 'Error: OpenLogi config not found: %s\n' "$OPENLOGI_CONFIG" >&2
+		printf 'Fix: ensure OpenLogi has run once, or run with --device "<your-device-key>" to create it\n' >&2
+		return 1
+	fi
+}
+
+# --- atomic write + backup + idempotent overlay regen (mirrors install.sh:do_apply) ---
+_tui_do_apply() {
+	explicit_device="${1:-}"
+	device_key=$(detect_device "$explicit_device") || return 1
+	header="[devices.\"$device_key\".per_app_bindings.\"com.mitchellh.ghostty\"]"
+	mkdir -p "$(dirname -- "$OPENLOGI_CONFIG")"
+	ts=$(date +%Y%m%d%H%M%S 2>/dev/null || date +%s 2>/dev/null || printf 'unknown')
+	backup="${OPENLOGI_CONFIG}.bak.${ts}"
+	i=0
+	while [ -e "$backup" ]; do
+		i=$((i + 1))
+		backup="${OPENLOGI_CONFIG}.bak.${ts}.${i}"
+	done
+	if [ -f "$OPENLOGI_CONFIG" ]; then
+		if cp -p -- "$OPENLOGI_CONFIG" "$backup" 2>/dev/null || cp -- "$OPENLOGI_CONFIG" "$backup" 2>/dev/null; then
+			printf 'Backup created: %s\n' "$backup"
+		else
+			printf 'Error: failed to create backup %s\n' "$backup" >&2
+			return 1
+		fi
+	else
+		printf 'No existing config at %s — creating new file\n' "$OPENLOGI_CONFIG"
+		: >"$backup" 2>/dev/null || true
+		if [ -f "$backup" ]; then
+			printf 'Backup created: %s (empty original)\n' "$backup"
+		fi
+	fi
+	tmp_overlay=$(mktemp 2>/dev/null || mktemp /tmp/herdr_overlay.XXXXXX)
+	tmp_new=$(mktemp 2>/dev/null || mktemp /tmp/herdr_new.XXXXXX)
+	printf '%s\n' "$header" >"$tmp_overlay"
+	get_overlay_body >>"$tmp_overlay"
+	if [ -f "$OPENLOGI_CONFIG" ]; then
+		found=0
+		in_target=0
+		in_dotted=0
+		need_append=1
+		: >"$tmp_new"
+		while IFS= read -r line || [ -n "$line" ]; do
+			# Pre-filter: skip legacy dotted per_app_bindings subtables for this device
+			if [ "$in_dotted" -eq 1 ]; then
+				case "$line" in
+				*"["*)
+					in_dotted=0
+					;;
+				*)
+					continue
+					;;
+				esac
+			fi
+			if printf '%s' "$line" | grep -Fq "[devices.\"$device_key\".per_app_bindings.\"ghostty\"" 2>/dev/null; then
+				in_dotted=1
+				continue
+			fi
+			if printf '%s' "$line" | grep -Fq "[devices.\"$device_key\".per_app_bindings.\"com.mitchellh.ghostty\"." 2>/dev/null; then
+				in_dotted=1
+				continue
+			fi
+			if printf '%s' "$line" | grep -Fq "[per_app_bindings.\"ghostty\"" 2>/dev/null; then
+				in_dotted=1
+				continue
+			fi
+			if printf '%s' "$line" | grep -Fq "[per_app_bindings.\"com.mitchellh.ghostty\"" 2>/dev/null; then
+				case "$line" in
+				*"[devices."*)
+					;;
+				*)
+					in_dotted=1
+					continue
+					;;
+				esac
+			fi
+			if [ "$line" = "$header" ]; then
+				if [ "$found" -eq 0 ]; then
+					found=1
+					need_append=0
+					in_target=1
+					cat "$tmp_overlay" >>"$tmp_new"
+					continue
+				else
+					in_target=1
+					continue
+				fi
+			fi
+			if [ "$in_target" -eq 1 ]; then
+				case "$line" in
+				\[*)
+					in_target=0
+					printf '%s\n' "$line" >>"$tmp_new"
+					;;
+				*)
+					continue
+					;;
+				esac
+			else
+				printf '%s\n' "$line" >>"$tmp_new"
+			fi
+		done <"$OPENLOGI_CONFIG"
+		if [ "$need_append" -eq 1 ]; then
+			if [ -s "$tmp_new" ]; then
+				printf '\n' >>"$tmp_new"
+			fi
+			cat "$tmp_overlay" >>"$tmp_new"
+		fi
+		if [ ! -s "$tmp_new" ]; then
+			printf 'Error: generated config is empty, aborting\n' >&2
+			rm -f "$tmp_overlay" "$tmp_new"
+			return 1
+		fi
+		tmp_write="${OPENLOGI_CONFIG}.tmp.$$"
+		if cat "$tmp_new" >"$tmp_write" 2>/dev/null; then
+			mv -- "$tmp_write" "$OPENLOGI_CONFIG"
+		else
+			mv -- "$tmp_new" "$OPENLOGI_CONFIG"
+		fi
+		rm -f "$tmp_new" "$tmp_overlay" "$tmp_write" 2>/dev/null || true
+		printf 'Patched: %s with %s\n' "$OPENLOGI_CONFIG" "$header"
+	else
+		cat "$tmp_overlay" >"$OPENLOGI_CONFIG"
+		rm -f "$tmp_new" "$tmp_overlay" 2>/dev/null || true
+		printf 'Created: %s with %s\n' "$OPENLOGI_CONFIG" "$header"
+	fi
+	printf '\nRunning --check...\n'
+	_tui_do_check
+}
+
+_tui_do_check() {
+	status=0
+	if [ -f "$KEYBINDING_CONFIG" ]; then
+		printf 'INFO: using Keybinding config %s\n' "$KEYBINDING_CONFIG"
+		if ! _validate_config; then
+			status=1
+		else
+			printf 'OK: Keybinding config %s is valid\n' "$KEYBINDING_CONFIG"
+		fi
+	fi
+	if [ ! -f "$OPENLOGI_CONFIG" ]; then
+		printf 'FAIL: OpenLogi config not found: %s\n' "$OPENLOGI_CONFIG" >&2
+		status=1
+	else
+		if ! grep -q 'per_app_bindings\."com\.mitchellh\.ghostty"' "$OPENLOGI_CONFIG" 2>/dev/null; then
+			printf 'FAIL: per_app_bindings."com.mitchellh.ghostty" block not found in %s\n' "$OPENLOGI_CONFIG" >&2
+			status=1
+		else
+			_eff_back=$(_get_effective_action "Back" "focus-left")
+			_eff_forward=$(_get_effective_action "Forward" "focus-right")
+			_eff_gesture_button=$(_get_effective_action "GestureButton" "zoom-toggle")
+			_eff_dpi_toggle=$(_get_effective_action "DpiToggle" "next-tab")
+			_eff_thumb_up=$(_get_effective_action "ThumbwheelScrollUp" "prev-workspace")
+			_eff_thumb_down=$(_get_effective_action "ThumbwheelScrollDown" "next-workspace")
+			_eff_gesture_up=$(_get_effective_action "GestureUp" "")
+			_eff_gesture_down=$(_get_effective_action "GestureDown" "")
+			missing=""
+			if ! grep -Fq "Back = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_back\" }" "$OPENLOGI_CONFIG"; then
+				missing="${missing}  - Back -> $_eff_back\n"
+			fi
+			if ! grep -Fq "Forward = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_forward\" }" "$OPENLOGI_CONFIG"; then
+				missing="${missing}  - Forward -> $_eff_forward\n"
+			fi
+			if ! grep -Fq "GestureButton = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_gesture_button\" }" "$OPENLOGI_CONFIG"; then
+				missing="${missing}  - GestureButton -> $_eff_gesture_button\n"
+			fi
+			if ! grep -Fq "DpiToggle = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_dpi_toggle\" }" "$OPENLOGI_CONFIG"; then
+				missing="${missing}  - DpiToggle -> $_eff_dpi_toggle\n"
+			fi
+			if ! grep -Fq "ThumbwheelScrollUp = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_thumb_up\" }" "$OPENLOGI_CONFIG"; then
+				missing="${missing}  - ThumbwheelScrollUp -> $_eff_thumb_up\n"
+			fi
+			if ! grep -Fq "ThumbwheelScrollDown = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_thumb_down\" }" "$OPENLOGI_CONFIG"; then
+				missing="${missing}  - ThumbwheelScrollDown -> $_eff_thumb_down\n"
+			fi
+			if [ -n "$_eff_gesture_up" ]; then
+				if ! grep -Fq "GestureUp = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_gesture_up\" }" "$OPENLOGI_CONFIG"; then
+					missing="${missing}  - GestureUp -> $_eff_gesture_up\n"
+				fi
+			fi
+			if [ -n "$_eff_gesture_down" ]; then
+				if ! grep -Fq "GestureDown = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_gesture_down\" }" "$OPENLOGI_CONFIG"; then
+					missing="${missing}  - GestureDown -> $_eff_gesture_down\n"
+				fi
+			fi
+			if [ -n "$missing" ]; then
+				printf 'FAIL: OpenLogi config has per_app_bindings block but required bindings are missing or incorrect:\n' >&2
+				printf '%b' "$missing" >&2
+				status=1
+			else
+				printf 'OK: OpenLogi config %s contains per_app_bindings."com.mitchellh.ghostty" with required bindings\n' "$OPENLOGI_CONFIG"
+			fi
+		fi
+	fi
+	if [ "$status" -eq 0 ]; then
+		printf 'All checks passed.\n'
+		return 0
+	else
+		return 1
+	fi
+}
+
+_write_keybinding_sets_atomic() {
+	# $1 = newline-separated "Input=action" list (already validated)
+	_sets="$1"
+	mkdir -p "$(dirname -- "$KEYBINDING_CONFIG")"
+	if [ ! -f "$KEYBINDING_CONFIG" ]; then
+		tmp_kb=$(mktemp 2>/dev/null || mktemp /tmp/herdr_kb.XXXXXX)
+		printf '[keybindings]\n' >"$tmp_kb"
+		printf '%s\n' "$_sets" | while IFS='=' read -r _k _v; do
+			[ -z "$_k" ] && continue
+			printf '%s = "%s"\n' "$_k" "$_v" >>"$tmp_kb"
+		done
+		tmp_final="${KEYBINDING_CONFIG}.tmp.$$"
+		cat "$tmp_kb" >"$tmp_final" && mv -- "$tmp_final" "$KEYBINDING_CONFIG"
+		rm -f "$tmp_kb" "$tmp_final" 2>/dev/null || true
+		return 0
+	fi
+	# Existing file — upsert each key idempotently, preserve other sections
+	tmp_kb=$(mktemp 2>/dev/null || mktemp /tmp/herdr_kb2.XXXXXX)
+	tmp_out=$(mktemp 2>/dev/null || mktemp /tmp/herdr_kb3.XXXXXX)
+	printf '%s\n' "$_sets" >"$tmp_kb"
+	# Build output by reading original and replacing matching keys in [keybindings]
+	awk -v sets_file="$tmp_kb" '
+		BEGIN {
+			n=0
+			while ((getline line < sets_file) > 0) {
+				split(line, kv, "=");
+				k=kv[1]; v=kv[2]
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", k)
+				gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+				if (k != "") { key[n]=k; val[n]=v; n++ }
+			}
+			close(sets_file)
+			for (i=0;i<n;i++) written[key[i]]=0
+			in_kb=0
+			seen_kb=0
+			has_kb=0
+		}
+		/^[[:space:]]*\[keybindings\][[:space:]]*(#.*)?$/ { in_kb=1; seen_kb=1; has_kb=1; print; next }
+		/^[[:space:]]*\[/ { if (in_kb) { for (i=0;i<n;i++) if (!written[key[i]]) { printf "%s = \"%s\"\n", key[i], val[i]; written[key[i]]=1 } } in_kb=0; print; next }
+		in_kb {
+			# strip comment for key compare
+			tmp=$0; sub(/#.*/, "", tmp)
+			# extract key if line has =
+			if (tmp ~ /=/) {
+				kk=tmp; sub(/=.*/, "", kk); gsub(/^[[:space:]]+|[[:space:]]+$/, "", kk)
+				for (i=0;i<n;i++) if (kk == key[i]) { printf "%s = \"%s\"\n", key[i], val[i]; written[key[i]]=1; next }
+			}
+			print
+			next
+		}
+		{ print }
+		END {
+			if (!has_kb) {
+				if (NR>0) printf "\n"
+				printf "[keybindings]\n"
+				for (i=0;i<n;i++) printf "%s = \"%s\"\n", key[i], val[i]
+			} else if (in_kb) {
+				for (i=0;i<n;i++) if (!written[key[i]]) printf "%s = \"%s\"\n", key[i], val[i]
+			} else if (seen_kb) {
+				# [keybindings] was seen but closed earlier and some keys not written: append at end would need another section — instead we already wrote them when leaving section; if still unwritten, append under a new section? This handles case where section at EOF without trailing newline
+				for (i=0;i<n;i++) if (!written[key[i]]) {
+					# need to reopen section — append at end
+					# We will append after loop: handled by checking unwritten and printing at end if needed
+				}
+			}
+			# If there were unwritten keys and section was not at EOF, they were written on section close; if section is at EOF and some keys unwritten, they were not yet written — handle now
+			for (i=0;i<n;i++) if (!written[key[i]]) {
+				# If has_kb but we already closed section, we need to ensure they were written. If not written, print now (would create duplicate section header but acceptable as append)
+				# To avoid duplicate header, only if they were not written and section closed earlier we append with header if needed
+				# Actually for simplicity if any unwritten remains, append them at EOF with header if has_kb already handled, but we already handled in_kb end. So if still unwritten, it means section was at EOF and we missed writing. Write now.
+				printf "%s = \"%s\"\n", key[i], val[i]
+			}
+		}
+	' "$KEYBINDING_CONFIG" >"$tmp_out" 2>/dev/null
+	# Atomic mv
+	tmp_final="${KEYBINDING_CONFIG}.tmp.$$"
+	cat "$tmp_out" >"$tmp_final" && mv -- "$tmp_final" "$KEYBINDING_CONFIG"
+	rm -f "$tmp_kb" "$tmp_out" "$tmp_final" 2>/dev/null || true
+}
+
+_has_any_invalid() {
+	for _inp in $VALID_INPUTS; do
+		if _has_invalid_row "$_inp"; then
+			return 0
+		fi
+	done
+	if ! _validate_config >/dev/null 2>&1; then
+		return 0
+	fi
+	return 1
+}
+
+_clean_invalid_lines() {
+	[ -f "$KEYBINDING_CONFIG" ] || return 0
+	tmp_clean=$(mktemp 2>/dev/null || mktemp /tmp/herdr_clean.XXXXXX)
+	tmp_clean2=$(mktemp 2>/dev/null || mktemp /tmp/herdr_clean2.XXXXXX)
+	_in_section=0
+	while IFS= read -r _cl_raw || [ -n "$_cl_raw" ]; do
+		_cl_trim=$(printf '%s' "$_cl_raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_cl_trim" in
+		""|\#*)
+			printf '%s\n' "$_cl_raw" >>"$tmp_clean"
+			continue
+			;;
+		esac
+		case "$_cl_trim" in
+		\[*\]*)
+			_cl_sec=$(printf '%s' "$_cl_trim" | sed 's/[[:space:]]*#.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+			if [ "$_cl_sec" = "[keybindings]" ]; then
+				_in_section=1
+			else
+				_in_section=0
+			fi
+			printf '%s\n' "$_cl_raw" >>"$tmp_clean"
+			continue
+			;;
+		esac
+		if [ "$_in_section" -eq 0 ]; then
+			printf '%s\n' "$_cl_raw" >>"$tmp_clean"
+			continue
+		fi
+		_no_comment=$(printf '%s' "$_cl_raw" | sed 's/#.*//')
+		_stripped=$(printf '%s' "$_no_comment" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_stripped" in
+		""|\#*)
+			printf '%s\n' "$_cl_raw" >>"$tmp_clean"
+			continue
+			;;
+		*"="*) ;;
+		*)
+			printf '%s\n' "$_cl_raw" >>"$tmp_clean"
+			continue
+			;;
+		esac
+		_ck_key=$(printf '%s' "$_stripped" | sed -E 's/^([^=]+)=.*/\1/' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		_ck_val_raw=$(printf '%s' "$_stripped" | sed -E 's/^[^=]*=[[:space:]]*//')
+		_ck_val_trim=$(printf '%s' "$_ck_val_raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		_ck_first=$(printf '%s' "$_ck_val_trim" | cut -c1 2>/dev/null || printf '%s' "$_ck_val_trim" | sed 's/^\(.\)/\1/')
+		if [ "$_ck_first" = '"' ]; then
+			_ck_val=$(printf '%s' "$_ck_val_trim" | sed -E 's/^"([^"]*)".*/\1/')
+		elif [ "$_ck_first" = "'" ]; then
+			_ck_val=$(printf '%s' "$_ck_val_trim" | sed -E "s/^'([^']*)'.*/\1/")
+		else
+			_ck_val=$(printf '%s' "$_ck_val_trim" | sed -E 's/[[:space:]].*//')
+		fi
+		if ! is_valid_input "$_ck_key" || [ -z "$_ck_val" ] || ! is_valid_action "$_ck_val"; then
+			continue
+		fi
+		printf '%s\n' "$_cl_raw" >>"$tmp_clean"
+	done <"$KEYBINDING_CONFIG"
+	cat "$tmp_clean" >"$tmp_clean2" && mv -- "$tmp_clean2" "$KEYBINDING_CONFIG"
+	rm -f "$tmp_clean" "$tmp_clean2" 2>/dev/null || true
+}
+
+_prompt_reload() {
+	printf 'Reload OpenLogi? [y/N] ' >&2
+	if [ -c /dev/tty ]; then
+		# shellcheck disable=SC3045
+		read -r _reload </dev/tty || _reload="n"
+	elif [ -t 0 ]; then
+		# shellcheck disable=SC3045
+		read -r _reload 2>/dev/tty || _reload="n"
+	else
+		# shellcheck disable=SC3045
+		read -r _reload || _reload="n"
+	fi
+	case "$_reload" in
+	y|Y) killall OpenLogi 2>/dev/null || killall "openlogi-desktop" 2>/dev/null || true; sleep 0.5; open -a "OpenLogi" 2>/dev/null || open -a "openlogi-desktop" 2>/dev/null || true; printf 'Reloading OpenLogi...\n' >&2 ;;
+	*) printf 'Skip reload — restart OpenLogi manually to apply.\n' >&2 ;;
+	esac
+}
+
+print_table() {
+	# Validation banner
+	if ! _validate_config 2>&1; then
+		printf '\n' >&2
+	fi
+
+	printf 'Keybinding picker — 8 inputs | Effective action | Source (default/custom)\n'
+	printf '%-22s | %-28s | %-7s\n' "Input" "Effective action" "Source"
+	printf '%-22s-+-%-28s-+-%-7s\n' "----------------------" "----------------------------" "-------"
+	for _inp in $VALID_INPUTS; do
+		_def=$(_default_for_input "$_inp")
+		_eff=$(_get_effective_action "$_inp" "$_def")
+		_src=$(_get_source "$_inp")
+		_warn=""
+		if _has_invalid_row "$_inp"; then
+			_warn=" ⚠"
+		fi
+		if [ -z "$_eff" ]; then
+			_display="— not set (default: omitted) —"
+		else
+			_display="$_eff"
+			_desc=$(_action_desc "$_eff")
+			if [ -n "$_desc" ]; then
+				_display="$_display — $_desc"
+			fi
+		fi
+		printf '%-22s | %-28s | %-7s%s\n' "$_inp" "$_display" "$_src" "$_warn"
+	done
+	printf '\n'
+	if _has_fzf; then
+		printf 'picker: fzf\n'
+	else
+		printf 'tip: brew install fzf for fuzzy picker (using select fallback)\n'
+	fi
+	printf 'Footer: ↑/↓ move  Enter pick  s Save+Apply  R Reset all  q Cancel  ? Help\n'
+}
+
+print_pick_list() {
+	_pick_input="$1"
+	if ! is_valid_input "$_pick_input"; then
+		printf 'FAIL: unknown input '\''%s'\''\n' "$_pick_input" >&2
+		printf 'Valid inputs: %s\n' "$VALID_INPUTS" >&2
+		return 1
+	fi
+	_pick_eff_default=$(_default_for_input "$_pick_input")
+	_pick_eff=$(_get_effective_action "$_pick_input" "$_pick_eff_default")
+	printf 'Pick action for %s (current: %s)\n' "$_pick_input" "${_pick_eff:-— not set —}"
+	if _has_fzf; then
+		printf 'picker: fzf\n'
+	else
+		printf 'picker: select — focus-left (fallback)\n'
+	fi
+	_i=1
+	for _act in $VALID_ACTIONS; do
+		_desc=$(_action_desc "$_act")
+		if _has_fzf; then
+			printf '  %s — %s\n' "$_act" "$_desc"
+		else
+			printf '  %d) %s — %s\n' "$_i" "$_act" "$_desc"
+		fi
+		_i=$(( _i + 1 ))
+	done
+	printf '  — reset to default —\n'
+	printf '  Cancel\n'
+}
+
+# --- interactive helpers -----------------------------------------------------
+
+_pick_via_fzf() {
+	# $1 = prompt, $2 = newline-separated options, echo chosen line
+	_pf_prompt="$1"
+	_pf_opts="$2"
+	printf '%s' "$_pf_opts" | fzf --prompt="$_pf_prompt> " --height=12 --layout=reverse 2>/dev/tty
+}
+
+_pick_via_select() {
+	_ps_prompt="$1"
+	_ps_opts="$2"
+	# Numbered select fallback — POSIX sh select loop
+	# shellcheck disable=SC3045
+	printf '%s\n' "$_ps_prompt" >&2
+	_idx=1
+	# Use temporary file to iterate options safely
+	_tmp=$(mktemp 2>/dev/null || mktemp /tmp/herdr_tui.XXXXXX)
+	printf '%s\n' "$_ps_opts" >"$_tmp"
+	while IFS= read -r _o || [ -n "$_o" ]; do
+		printf '  %d) %s\n' "$_idx" "$_o" >&2
+		_idx=$(( _idx + 1 ))
+	done <"$_tmp"
+	printf 'Enter number: ' >&2
+	# shellcheck disable=SC3045
+	read -r _choice 2>/dev/tty || _choice=""
+	case "$_choice" in
+	''|*[!0-9]*) printf '' ;;
+	*)
+		if [ "$_choice" -ge 1 ] && [ "$_choice" -lt "$_idx" ]; then
+			sed -n "${_choice}p" "$_tmp"
+		fi
+		;;
+	esac
+	rm -f "$_tmp" 2>/dev/null || true
+}
+
+# --- arg parsing -------------------------------------------------------------
+DRY_RUN=0
+PICK_INPUT=""
+SHOW_HELP=0
+NON_INTERACTIVE=0
+HOME_OVERRIDE=""
+SET_LIST=""
+DO_CHECK=0
+DO_RESET=0
+DO_SAVE=0
+DO_DIRTY=0
+EXPLICIT_DEVICE=""
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+	--help|-h)
+		SHOW_HELP=1
+		shift
+		;;
+	--dry-run)
+		DRY_RUN=1
+		shift
+		;;
+	--pick)
+		if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+			printf 'Error: --pick requires an argument\n' >&2
+			usage >&2
+			exit 1
+		fi
+		PICK_INPUT="$2"
+		shift 2
+		;;
+	--tui)
+		# alias for interactive (used by install.sh --tui)
+		shift
+		;;
+	--non-interactive)
+		NON_INTERACTIVE=1
+		shift
+		;;
+	--home)
+		if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+			printf 'Error: --home requires an argument\n' >&2
+			usage >&2
+			exit 1
+		fi
+		HOME_OVERRIDE="$2"
+		shift 2
+		;;
+	--home=*)
+		HOME_OVERRIDE="${1#--home=}"
+		shift
+		;;
+	--set)
+		if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+			printf 'Error: --set requires an argument (Input=action)\n' >&2
+			usage >&2
+			exit 1
+		fi
+		if [ -z "$SET_LIST" ]; then
+			SET_LIST="$2"
+		else
+			SET_LIST="${SET_LIST}
+$2"
+		fi
+		shift 2
+		;;
+	--set=*)
+		_val="${1#--set=}"
+		if [ -z "$SET_LIST" ]; then
+			SET_LIST="$_val"
+		else
+			SET_LIST="${SET_LIST}
+$_val"
+		fi
+		shift
+		;;
+	--check)
+		DO_CHECK=1
+		shift
+		;;
+	--reset-all|--reset)
+		DO_RESET=1
+		shift
+		;;
+	--save)
+		DO_SAVE=1
+		shift
+		;;
+	--dirty-check|--dirty)
+		DO_DIRTY=1
+		shift
+		;;
+	--device)
+		if [ $# -lt 2 ] || [ -z "${2:-}" ]; then
+			printf 'Error: --device requires an argument\n' >&2
+			usage >&2
+			exit 1
+		fi
+		EXPLICIT_DEVICE="$2"
+		shift 2
+		;;
+	--device=*)
+		EXPLICIT_DEVICE="${1#--device=}"
+		shift
+		;;
+	*)
+		printf 'Unknown argument: %s\n' "$1" >&2
+		usage >&2
+		exit 1
+		;;
+	esac
+done
+# Apply HOME override if given
+if [ -n "$HOME_OVERRIDE" ]; then
+	HOME="$HOME_OVERRIDE"
+	export HOME
+	KEYBINDING_CONFIG="$HOME/.config/openlogi-herdr/config.toml"
+	OPENLOGI_CONFIG="$HOME/.config/openlogi/config.toml"
+fi
+
+if [ "$SHOW_HELP" -eq 1 ]; then
+	usage
+	exit 0
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+	if [ -n "$PICK_INPUT" ]; then
+		print_table
+		printf '\n'
+		print_pick_list "$PICK_INPUT"
+	else
+		print_table
+	fi
+	exit 0
+fi
+
+if [ -n "$PICK_INPUT" ]; then
+	print_pick_list "$PICK_INPUT"
+	exit 0
+fi
+
+# --- non-interactive save/apply path (ISC-4, ISC-5) --------------------------
+if [ "$NON_INTERACTIVE" -eq 1 ]; then
+	# --reset-all: delete config (or clear [keybindings] section) and re-derive overlay
+	if [ "$DO_RESET" -eq 1 ]; then
+		if [ -f "$KEYBINDING_CONFIG" ]; then
+			# If file has other sections, clear [keybindings] block instead of deleting whole file
+			if grep -q '^\[keybindings\]' "$KEYBINDING_CONFIG" 2>/dev/null && grep -q '^\[' "$KEYBINDING_CONFIG" 2>/dev/null; then
+				# shellcheck disable=SC2126
+				_other_sections=$(grep -E '^[[:space:]]*\[[^]]+\]' "$KEYBINDING_CONFIG" 2>/dev/null | grep -v -E '^[[:space:]]*\[keybindings\]' | wc -l | tr -d ' ')
+				if [ "${_other_sections:-0}" -gt 0 ]; then
+					tmp_reset=$(mktemp 2>/dev/null || mktemp /tmp/herdr_reset.XXXXXX)
+					awk 'BEGIN{in_kb=0} /^\[keybindings\]/{in_kb=1; next} /^\[/{in_kb=0} !in_kb{print}' "$KEYBINDING_CONFIG" >"$tmp_reset" 2>/dev/null
+					# If resulting file is empty/whitespace, remove it; otherwise replace
+					if grep -q '[^[:space:]#]' "$tmp_reset" 2>/dev/null; then
+						cat "$tmp_reset" >"$KEYBINDING_CONFIG" 2>/dev/null || rm -f -- "$KEYBINDING_CONFIG" 2>/dev/null || true
+					else
+						rm -f -- "$KEYBINDING_CONFIG" 2>/dev/null || true
+					fi
+					rm -f "$tmp_reset" 2>/dev/null || true
+					printf 'Reset — Keybinding config cleared: %s (other sections preserved)\n' "$KEYBINDING_CONFIG"
+				else
+					rm -f -- "$KEYBINDING_CONFIG" 2>/dev/null || true
+					printf 'Reset — Keybinding config removed: %s\n' "$KEYBINDING_CONFIG"
+				fi
+			else
+				rm -f -- "$KEYBINDING_CONFIG" 2>/dev/null || true
+				printf 'Reset — Keybinding config removed: %s\n' "$KEYBINDING_CONFIG"
+			fi
+		else
+			printf 'Reset — no Keybinding config to remove (defaults will be used).\n'
+		fi
+		_tui_do_apply "$EXPLICIT_DEVICE"
+		_status=$?
+		exit $_status
+	fi
+	# --dirty-check: simulate dirty quit prompt (for ISC-7 tests)
+	if [ "$DO_DIRTY" -eq 1 ]; then
+		printf 'Save changes? [y/N/c] ' >&2
+		# shellcheck disable=SC3045
+		read -r _dirty_ans || _dirty_ans="n"
+		case "$_dirty_ans" in
+		y|Y) printf 'Save? yes — would save before quit\n' >&2 ;;
+		N|n|"") printf 'Save? no — discard changes\n' >&2 ;;
+		c|C) printf 'Save? cancel — return to picker\n' >&2 ;;
+		*) printf 'Save? no — discard changes\n' >&2 ;;
+		esac
+		exit 0
+	fi
+	# --save: Save+Apply with validation blocking and reload prompt y-only
+	if [ "$DO_SAVE" -eq 1 ]; then
+		if ! _validate_config 2>&1; then
+			printf '\n' >&2
+			for _inp in $VALID_INPUTS; do
+				if _has_invalid_row "$_inp"; then
+					printf '⚠ %s has invalid entry\n' "$_inp" >&2
+				fi
+			done
+			printf 'Save blocked — fix validation errors first (Valid inputs: %s; Valid actions: %s)\n' "$VALID_INPUTS" "$VALID_ACTIONS" >&2
+			exit 1
+		fi
+		_clean_invalid_lines
+		_tui_do_apply "$EXPLICIT_DEVICE"
+		_status=$?
+		if [ "$_status" -eq 0 ]; then
+			_prompt_reload
+		fi
+		# Ensure reload prompt is visible even when stdin was piped for dirty simulation
+		exit $_status
+	fi
+	# --set: validate, atomically write keybindings, then apply overlay
+	if [ -n "$SET_LIST" ]; then
+		_set_err=0
+		printf '%s\n' "$SET_LIST" | while IFS= read -r _entry || [ -n "$_entry" ]; do
+			[ -z "$_entry" ] && continue
+			case "$_entry" in
+				*=*)
+					_k=$(printf '%s' "$_entry" | sed -E 's/=.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+					_v=$(printf '%s' "$_entry" | sed -E 's/^[^=]*=//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+					if ! is_valid_input "$_k"; then
+						printf 'FAIL: unknown input '\''%s'\''\n' "$_k" >&2
+						printf 'Valid inputs: %s\n' "$VALID_INPUTS" >&2
+						exit 1
+					fi
+					if [ -z "$_v" ] || ! is_valid_action "$_v"; then
+						if [ -z "$_v" ]; then
+							printf 'FAIL: empty or unknown action for input '\''%s'\''\n' "$_k" >&2
+						else
+							printf 'FAIL: unknown action '\''%s'\'' for input '\''%s'\''\n' "$_v" "$_k" >&2
+						fi
+						printf 'Valid actions: %s\n' "$VALID_ACTIONS" >&2
+						exit 1
+					fi
+					;;
+				*)
+					printf 'FAIL: invalid --set argument '\''%s'\'' (expected Input=action)\n' "$_entry" >&2
+					printf 'Valid inputs: %s\n' "$VALID_INPUTS" >&2
+					printf 'Valid actions: %s\n' "$VALID_ACTIONS" >&2
+					exit 1
+					;;
+			esac
+		done
+		# Capture validation status (while loop in subshell — check again synchronously)
+		_validation_ok=1
+		printf '%s\n' "$SET_LIST" | while IFS= read -r _e2 || [ -n "$_e2" ]; do
+			[ -z "$_e2" ] && continue
+			# same checks without exiting subshell, but we need to propagate failure; do it inline below
+			true
+		done
+		# Synchronous validation to enforce exit code
+		for _entry in $(printf '%s\n' "$SET_LIST" | tr '\n' ' '); do
+			# Use newline splitting via SET_LIST directly
+			true
+		done
+		# Re-validate synchronously to block write on invalid input/action
+		_invalid_found=0
+		_old_IFS="$IFS"
+		IFS='
+'
+		for _entry in $SET_LIST; do
+			[ -z "$_entry" ] && continue
+			case "$_entry" in
+				*=*)
+					_k=$(printf '%s' "$_entry" | sed -E 's/=.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+					_v=$(printf '%s' "$_entry" | sed -E 's/^[^=]*=//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+					if ! is_valid_input "$_k" || [ -z "$_v" ] || ! is_valid_action "$_v"; then
+						_invalid_found=1
+					fi
+					;;
+				*)
+					_invalid_found=1
+					;;
+			esac
+		done
+		IFS="$_old_IFS"
+		if [ "$_invalid_found" -eq 1 ]; then
+			# Print detailed errors (re-run validation that prints)
+			printf '%s\n' "$SET_LIST" | while IFS= read -r _entry || [ -n "$_entry" ]; do
+				[ -z "$_entry" ] && continue
+				_k=$(printf '%s' "$_entry" | sed -E 's/=.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+				_v=$(printf '%s' "$_entry" | sed -E 's/^[^=]*=//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+				if ! is_valid_input "$_k"; then
+					printf 'FAIL: unknown input '\''%s'\''\n' "$_k" >&2
+					printf 'Valid inputs: %s\n' "$VALID_INPUTS" >&2
+				else
+					if [ -z "$_v" ] || ! is_valid_action "$_v"; then
+						if [ -z "$_v" ]; then
+							printf 'FAIL: empty or unknown action for input '\''%s'\''\n' "$_k" >&2
+						else
+							printf 'FAIL: unknown action '\''%s'\'' for input '\''%s'\''\n' "$_v" "$_k" >&2
+						fi
+						printf 'Valid actions: %s\n' "$VALID_ACTIONS" >&2
+					fi
+				fi
+			done
+			exit 1
+		fi
+		_write_keybinding_sets_atomic "$SET_LIST"
+		_clean_invalid_lines
+		printf 'Wrote Keybinding config: %s\n' "$KEYBINDING_CONFIG"
+		_tui_do_apply "$EXPLICIT_DEVICE"
+		_status=$?
+		# If apply succeeded but config validation fails (should not happen after our validation), propagate failure
+		exit $_status
+	fi
+	# --check: validate and print banner + table hint (blocks Save conceptually but allows inspection)
+	if [ "$DO_CHECK" -eq 1 ]; then
+		if ! _validate_config 2>&1; then
+			printf '\n' >&2
+		fi
+		# Show per-row warnings like print_table does
+		for _inp in $VALID_INPUTS; do
+			if _has_invalid_row "$_inp"; then
+				printf '⚠ %s has invalid entry\n' "$_inp" >&2
+			fi
+		done
+		_tui_do_check
+		_status=$?
+		if [ "$_status" -ne 0 ]; then
+			printf 'Save would be blocked — fix validation errors first\n' >&2
+		fi
+		exit $_status
+	fi
+	# Non-interactive with no --set/--check/--reset/--save/--dirty-check: validate blocking before apply
+	if ! _validate_config 2>&1; then
+		printf '\n' >&2
+		for _inp in $VALID_INPUTS; do
+			if _has_invalid_row "$_inp"; then
+				printf '⚠ %s has invalid entry\n' "$_inp" >&2
+			fi
+		done
+		printf 'Save blocked — fix validation errors first (Valid inputs: %s; Valid actions: %s)\n' "$VALID_INPUTS" "$VALID_ACTIONS" >&2
+		exit 1
+	fi
+	_clean_invalid_lines
+	_tui_do_apply "$EXPLICIT_DEVICE"
+	_status=$?
+	exit $_status
+fi
+
+# --- interactive TUI ---------------------------------------------------------
+# Interactive loop with dirty tracking, validation blocking, and y/N/c prompts.
+
+DIRTY=0
+
+printf 'Keybinding picker — 8 inputs\n'
+print_table
+
+# If stdin is not a tty and /dev/tty unavailable (piped test), exit after table.
+# Herdr popup has stdin as pipe but /dev/tty available — keep interactive.
+if [ ! -t 0 ] && [ ! -c /dev/tty ]; then
+	exit 0
+fi
+
+printf '\nInteractive picker: '
+if _has_fzf; then
+	printf 'fzf available (fuzzy picker)\n'
+else
+	printf 'fzf not found — using select fallback (tip: brew install fzf)\n'
+fi
+
+# Simple loop: prompt for input number to edit
+while true; do
+	printf '\nEnter input number 1-8 to pick, s Save+Apply, R Reset all, q Cancel, ? Help: ' >&2
+	# shellcheck disable=SC3045
+	if [ -c /dev/tty ]; then
+		if ! read -r _cmd </dev/tty; then
+			printf '\n' >&2
+			exit 0
+		fi
+	else
+		if ! read -r _cmd; then
+			printf '\n' >&2
+			exit 0
+		fi
+	fi
+	case "$_cmd" in
+	s|S)
+		if ! _validate_config 2>&1; then
+			printf '\n' >&2
+			for _inp in $VALID_INPUTS; do
+				if _has_invalid_row "$_inp"; then
+					printf '⚠ %s has invalid entry\n' "$_inp" >&2
+				fi
+			done
+			printf 'Save blocked — fix validation errors first (Valid inputs: %s; Valid actions: %s)\n' "$VALID_INPUTS" "$VALID_ACTIONS" >&2
+			print_table
+			continue
+		fi
+		printf 'Save+Apply — writing %s and regenerating overlay...\n' "$KEYBINDING_CONFIG" >&2
+		_clean_invalid_lines
+		# Delegate to install.sh --apply for overlay regen (idempotent, backup, --check)
+		# shellcheck disable=SC2015
+		_script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd 2>/dev/null || dirname -- "$0")
+		if [ -x "$_script_dir/install.sh" ]; then
+			"$_script_dir/install.sh" --apply 2>&1 || printf 'Save failed — fix validation errors first\n' >&2
+		else
+			printf 'install.sh not found — Keybinding config left as-is\n' >&2
+		fi
+		DIRTY=0
+		_prompt_reload
+		exit 0
+		;;
+	R)
+		printf 'Reset all — delete %s? [y/N] ' "$KEYBINDING_CONFIG" >&2
+		# shellcheck disable=SC3045
+		if [ -t 0 ]; then
+			read -r _confirm 2>/dev/tty || _confirm="n"
+		else
+			read -r _confirm || _confirm="n"
+		fi
+		case "$_confirm" in
+		y|Y)
+			# Clear [keybindings] or delete file, preserving other sections if present
+			if [ -f "$KEYBINDING_CONFIG" ]; then
+				# shellcheck disable=SC2126
+				_other_sections=$(grep -E '^[[:space:]]*\[[^]]+\]' "$KEYBINDING_CONFIG" 2>/dev/null | grep -v -E '^[[:space:]]*\[keybindings\]' | wc -l | tr -d ' ')
+				if [ "${_other_sections:-0}" -gt 0 ]; then
+					tmp_reset=$(mktemp 2>/dev/null || mktemp /tmp/herdr_reset.XXXXXX)
+					awk 'BEGIN{in_kb=0} /^\[keybindings\]/{in_kb=1; next} /^\[/{in_kb=0} !in_kb{print}' "$KEYBINDING_CONFIG" >"$tmp_reset" 2>/dev/null
+					if grep -q '[^[:space:]#]' "$tmp_reset" 2>/dev/null; then
+						cat "$tmp_reset" >"$KEYBINDING_CONFIG" 2>/dev/null || rm -f -- "$KEYBINDING_CONFIG" 2>/dev/null || true
+					else
+						rm -f -- "$KEYBINDING_CONFIG" 2>/dev/null || true
+					fi
+					rm -f "$tmp_reset" 2>/dev/null || true
+				else
+					rm -f -- "$KEYBINDING_CONFIG" 2>/dev/null || true
+				fi
+			fi
+			printf 'Reset — Keybinding config removed (defaults will be used).\n' >&2
+			DIRTY=0
+			# shellcheck disable=SC2015
+			_script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd 2>/dev/null || dirname -- "$0")
+			if [ -x "$_script_dir/install.sh" ]; then
+				"$_script_dir/install.sh" --apply 2>&1 || true
+			fi
+			;;
+		*) printf 'Cancel reset.\n' >&2 ;;
+		esac
+		print_table
+		;;
+	q|Q)
+		if [ "$DIRTY" -eq 1 ]; then
+			printf 'Save changes? [y/N/c] ' >&2
+			# shellcheck disable=SC3045
+			if [ -t 0 ]; then
+				read -r _dirty_ans 2>/dev/tty || _dirty_ans="n"
+			else
+				read -r _dirty_ans || _dirty_ans="n"
+			fi
+			case "$_dirty_ans" in
+			y|Y)
+				if ! _validate_config 2>&1; then
+					printf '\n' >&2
+					for _inp in $VALID_INPUTS; do
+						if _has_invalid_row "$_inp"; then
+							printf '⚠ %s has invalid entry\n' "$_inp" >&2
+						fi
+					done
+					printf 'Save blocked — fix validation errors first\n' >&2
+					print_table
+					continue
+				fi
+				_clean_invalid_lines
+				# shellcheck disable=SC2015
+				_script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd 2>/dev/null || dirname -- "$0")
+				if [ -x "$_script_dir/install.sh" ]; then
+					"$_script_dir/install.sh" --apply 2>&1 || printf 'Save failed\n' >&2
+				fi
+				DIRTY=0
+				_prompt_reload
+				exit 0
+				;;
+			N|n|"")
+				printf 'Discard changes — exit without saving.\n' >&2
+				exit 0
+				;;
+			c|C)
+				printf 'Cancel quit — return to picker.\n' >&2
+				print_table
+				continue
+				;;
+			*)
+				printf 'Discard changes — exit without saving.\n' >&2
+				exit 0
+				;;
+			esac
+		fi
+		printf 'Cancel.\n' >&2
+		exit 0
+		;;
+	\?|help)
+		usage
+		;;
+	[1-8])
+		# Map number to input
+		_n="$_cmd"
+		_sel=""
+		_c=1
+		for _inp in $VALID_INPUTS; do
+			if [ "$_c" -eq "$_n" ]; then
+				_sel="$_inp"
+				break
+			fi
+			_c=$(( _c + 1 ))
+		done
+		if [ -z "$_sel" ]; then
+			printf 'Invalid selection.\n' >&2
+			continue
+		fi
+		# Build action options
+		_opts=""
+		for _a in $VALID_ACTIONS; do
+			_d=$(_action_desc "$_a")
+			_opts="${_opts}${_a} — ${_d}
+"
+		done
+		_opts="${_opts}— reset to default —
+Cancel"
+		_choice=""
+		if _has_fzf; then
+			_choice=$(_pick_via_fzf "$_sel" "$_opts" 2>/dev/tty || true)
+		else
+			_choice=$(_pick_via_select "Pick action for $_sel:" "$_opts" 2>/dev/tty || true)
+		fi
+		# Normalize choice: strip description
+		_picked=$(printf '%s' "$_choice" | sed -E 's/ —.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_picked" in
+		""|Cancel) printf 'Cancel pick.\n' >&2 ;;
+		"— reset to default —"|"reset to default"|"— reset"*)
+			printf 'Reset %s to default — removing line from %s\n' "$_sel" "$KEYBINDING_CONFIG" >&2
+			# Remove line from config if present (minimal edit)
+			if [ -f "$KEYBINDING_CONFIG" ]; then
+				_tmp2=$(mktemp 2>/dev/null || mktemp /tmp/herdr_tui2.XXXXXX)
+				# shellcheck disable=SC2015
+				awk -v k="$_sel" 'BEGIN{in_kb=0} /^\[keybindings\]/{in_kb=1; print; next} /^\[/{in_kb=0} in_kb && $0 ~ "^[[:space:]]*"k"[[:space:]]*=" {next} {print}' "$KEYBINDING_CONFIG" >"$_tmp2" 2>/dev/null && cat "$_tmp2" >"$KEYBINDING_CONFIG" || true
+				rm -f "$_tmp2" 2>/dev/null || true
+				DIRTY=1
+			fi
+			print_table
+			;;
+		*)
+			if is_valid_action "$_picked"; then
+				printf 'Set %s = "%s"\n' "$_sel" "$_picked" >&2
+				mkdir -p "$(dirname -- "$KEYBINDING_CONFIG")"
+				DIRTY=1
+				# Upsert [keybindings] section
+				if [ ! -f "$KEYBINDING_CONFIG" ]; then
+					printf '[keybindings]\n%s = "%s"\n' "$_sel" "$_picked" >"$KEYBINDING_CONFIG"
+				else
+					_tmp3=$(mktemp 2>/dev/null || mktemp /tmp/herdr_tui3.XXXXXX)
+					if grep -q "^\[keybindings\]" "$KEYBINDING_CONFIG" 2>/dev/null; then
+						# If key exists, replace line; else append under section
+						if grep -q "^[[:space:]]*${_sel}[[:space:]]*=" "$KEYBINDING_CONFIG" 2>/dev/null; then
+							sed -E "s/^[[:space:]]*${_sel}[[:space:]]*=.*/${_sel} = \"${_picked}\"/" "$KEYBINDING_CONFIG" >"$_tmp3"
+						else
+							awk -v k="$_sel" -v v="$_picked" 'BEGIN{done=0} /^\[keybindings\]/{print; print k" = \""v"\""; done=1; next} {print} END{if(!done) print "[keybindings]\n"k" = \""v"\""}' "$KEYBINDING_CONFIG" >"$_tmp3"
+						fi
+					else
+						{
+							cat "$KEYBINDING_CONFIG"
+							printf '\n[keybindings]\n%s = "%s"\n' "$_sel" "$_picked"
+						} >"$_tmp3"
+					fi
+					cat "$_tmp3" >"$KEYBINDING_CONFIG"
+					rm -f "$_tmp3" 2>/dev/null || true
+				fi
+				print_table
+			else
+				printf 'Invalid action: %s\n' "$_picked" >&2
+			fi
+			;;
+		esac
+		;;
+	*)
+		printf 'Unknown command: %s (try ? for help)\n' "$_cmd" >&2
+		;;
+	esac
+done
