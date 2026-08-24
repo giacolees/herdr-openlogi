@@ -68,6 +68,7 @@ What this does on every herdr session restore:
 > **⚠️ Heads-up:** `~/.config/openlogi/config.toml` is owned by OpenLogi. Enabling `auto-apply` means the plugin will edit it on every herdr restart until you `rm "$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply"`. A backup is made each time, but OpenLogi updates can still overwrite the block (Bootstrap will re-apply on the next restart). If you prefer to own that file yourself, skip this step and use the manual method below.
 
 > **Ambiguous device?** If `selected_device` isn't set or you have multiple mice, write the key into the flag file instead of leaving it empty:
+>
 > ```sh
 > echo "direct:046d:b034:serial:YOURS" > "$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply"
 > # find yours with: grep selected_device ~/.config/openlogi/config.toml
@@ -167,9 +168,11 @@ While Ghostty is focused, each mouse input fires an OpenLogi `RunShellCommand` �
 | **Thumb wheel rotate up** | `prev-workspace` | Previous workspace (wraps) |
 | **Thumb wheel rotate down** | `next-workspace` | Next workspace (wraps) |
 
-* **Directional focus** — moves pane focus one step in a cardinal direction within the current herdr layout (`herdr pane focus --direction <dir>`).
-* **Zoom toggle** — expands/collapses the focused pane (`herdr pane zoom`).
-* **Tab cycle** — switches to the next/previous tab of the focused workspace, wrapping at the ends. No-ops on a single tab.
+> **Defaults shown** — table reflects the baked-in mapping in [`openlogi/per-app-bindings.toml`](openlogi/per-app-bindings.toml). Every row is remappable via [Custom keybindings](#custom-keybindings).
+
+- **Directional focus** — moves pane focus one step in a cardinal direction within the current herdr layout (`herdr pane focus --direction <dir>`).
+- **Zoom toggle** — expands/collapses the focused pane (`herdr pane zoom`).
+- **Tab cycle** — switches to the next/previous tab of the focused workspace, wrapping at the ends. No-ops on a single tab.
 
 When Ghostty is *not* focused, OpenLogi's binding overlay simply isn't active — defaults apply and no script runs. No frontmost-app check lives in the scripts.
 
@@ -188,6 +191,34 @@ herdr-mouse next-workspace
 herdr-mouse prev-workspace
 ```
 
+## Custom keybindings
+
+Remap any mouse input to any Dispatcher action via a user-owned [Keybinding config](CONTEXT.md) at `~/.config/openlogi-herdr/config.toml` (`[keybindings]` table). The Binding overlay is derived from the effective mapping (your overrides + baked-in defaults) — you never hand-edit `~/.config/openlogi/config.toml` again.
+
+Template: [`openlogi/herdr-mouse.example.toml`](openlogi/herdr-mouse.example.toml) — commented, 8 inputs × 9 actions. Copy and edit:
+
+```sh
+mkdir -p ~/.config/openlogi-herdr
+cp openlogi/herdr-mouse.example.toml ~/.config/openlogi-herdr/config.toml
+$EDITOR ~/.config/openlogi-herdr/config.toml   # e.g. Back = "zoom-toggle"
+./install.sh --apply                            # regenerates overlay, backs up .bak.*, atomic
+./install.sh --check                            # validates overlay + custom file
+killall OpenLogi; open -a OpenLogi              # reload
+```
+
+**Valid inputs (8)** — `Back`, `Forward`, `GestureButton`, `DpiToggle`, `ThumbwheelScrollUp`, `ThumbwheelScrollDown`, `GestureUp`, `GestureDown` (last two optional — only emitted when set).
+
+**Valid actions (9 Dispatcher ids)** — `focus-left`, `focus-right`, `focus-up`, `focus-down`, `zoom-toggle`, `next-tab`, `prev-tab`, `next-workspace`, `prev-workspace`.
+
+**Behavior**
+
+- Missing keys or missing file/section → falls back to defaults in [`openlogi/per-app-bindings.toml`](openlogi/per-app-bindings.toml); `--check` passes.
+- Partial file → custom keys override, others keep defaults.
+- Delete the file (or a single line) and re-run `--apply` → that key reverts to its default.
+- Invalid input or action (unknown name or empty string) → `install.sh --check` FAILs with `Valid inputs:` / `Valid actions:` and a Fix hint; Bootstrap (`scripts/bootstrap.sh` with `auto-apply` flag) silently falls back to the default for that entry and never breaks startup.
+
+With the `auto-apply` flag enabled (`touch "$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply"`), every herdr restart re-derives the overlay from the effective mapping automatically.
+
 ---
 
 ## How it works
@@ -199,9 +230,9 @@ herdr-mouse prev-workspace
                                                                          shared helpers, one artifact
 ```
 
-* **Gating is OpenLogi-native.** The overlay in `per_app_bindings."com.mitchellh.ghostty"` replaces default button actions only while Ghostty has focus. Scripts never check the frontmost app themselves.
-* **One dispatcher, not five scripts.** `bin/herdr-mouse` handles all nine subcommands with shared `herdr`/`jq` resolution and consistent error handling. One deployed artifact, one symlink.
-* **Deploy by Bootstrap, verify-and-instruct.** The Bootstrap startup hook (`scripts/bootstrap.sh` via `[[startup]]`) owns the symlink; `install.sh --check` validates the symlink and the TOML and prints the exact snippet to paste when invalid.
+- **Gating is OpenLogi-native.** The overlay in `per_app_bindings."com.mitchellh.ghostty"` replaces default button actions only while Ghostty has focus. Scripts never check the frontmost app themselves.
+- **One dispatcher, not five scripts.** `bin/herdr-mouse` handles all nine subcommands with shared `herdr`/`jq` resolution and consistent error handling. One deployed artifact, one symlink.
+- **Deploy by Bootstrap, verify-and-instruct.** The Bootstrap startup hook (`scripts/bootstrap.sh` via `[[startup]]`) owns the symlink; `install.sh --check` validates the symlink and the TOML and prints the exact snippet to paste when invalid.
 
 ### Project layout
 
@@ -221,8 +252,8 @@ OpenLogi spawns `RunShellCommand` actions via `/bin/sh -c` from its **GUI agent*
 
 `bin/herdr-mouse` therefore **never relies on login-shell `PATH`**. On startup it resolves absolute paths by probing well-known locations before falling back to `command -v`:
 
-* `herdr`: `$HERDR_BIN_PATH` (set by herdr when invoking plugin actions), then `$HOME/.local/bin/herdr`, `/opt/homebrew/bin/herdr`, `/usr/local/bin/herdr`, then `PATH`.
-* `jq`: `/opt/homebrew/bin/jq`, `/usr/local/bin/jq`, `/usr/bin/jq`, `/bin/jq`, then `PATH`.
+- `herdr`: `$HERDR_BIN_PATH` (set by herdr when invoking plugin actions), then `$HOME/.local/bin/herdr`, `/opt/homebrew/bin/herdr`, `/usr/local/bin/herdr`, then `PATH`.
+- `jq`: `/opt/homebrew/bin/jq`, `/usr/local/bin/jq`, `/usr/bin/jq`, `/bin/jq`, then `PATH`.
 
 For testing, both are overrideable via environment:
 
