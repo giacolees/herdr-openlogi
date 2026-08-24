@@ -1,7 +1,10 @@
 #!/bin/sh
-# install.sh — symlink deploy + --check verify for openlogi-herdr
-# POSIX sh only. Idempotent. Never edits ~/.config/openlogi/config.toml —
-# --check only verifies and prints the exact TOML to paste when wrong.
+# install.sh — verify and patch the OpenLogi Binding overlay for openlogi-herdr
+# POSIX sh only. Idempotent. Never edits ~/.config/openlogi/config.toml
+# except via --apply (backup, idempotent). Symlink at
+# ~/.local/bin/herdr-mouse is owned by the Bootstrap startup hook
+# (scripts/bootstrap.sh), not this script — --check reports it
+# informationally only.
 set -eu
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -12,13 +15,16 @@ CONFIG="$HOME/.config/openlogi/config.toml"
 
 usage() {
 	cat <<'USAGE'
-Usage: ./install.sh [--check] [--apply [--device <key>]] [--help]
+Usage: ./install.sh --check | --apply [--device <key>] [--help]
 
-  (no args)  Deploy ~/.local/bin/herdr-mouse as a symlink to bin/herdr-mouse
-  --check    Verify symlink deployment and OpenLogi per_app_bindings block
+  --check    Verify OpenLogi per_app_bindings block; report symlink status informationally
+             (symlink at ~/.local/bin/herdr-mouse is owned by the Bootstrap startup hook)
   --apply    Patch ~/.config/openlogi/config.toml with the overlay (backup, idempotent)
              --device <key>  Explicit device key when auto-detect is ambiguous
   --help     Show this help
+
+Symlink is owned by the Bootstrap startup hook (scripts/bootstrap.sh);
+install.sh never creates it — --check only reports its status.
 USAGE
 }
 
@@ -104,9 +110,6 @@ do_apply() {
 	explicit_device="${1:-}"
 	device_key=$(detect_device "$explicit_device") || exit 1
 	header="[devices.\"$device_key\".per_app_bindings.\"com.mitchellh.ghostty\"]"
-
-	# Deploy symlink first (idempotent)
-	do_install
 
 	# Ensure config directory exists
 	mkdir -p "$(dirname -- "$CONFIG")"
@@ -232,71 +235,24 @@ TOML
 	fi
 }
 
-do_install() {
-	if [ ! -f "$REPO_BIN" ]; then
-		printf 'Error: repo binary not found: %s\n' "$REPO_BIN" >&2
-		exit 1
-	fi
-	if [ ! -x "$REPO_BIN" ]; then
-		printf 'Error: repo binary not executable: %s\n' "$REPO_BIN" >&2
-		exit 1
-	fi
-
-	mkdir -p "$(dirname -- "$DEST")"
-
-	# Handle existing DEST: symlink, file, or directory (legacy per-action scripts).
-	if [ -L "$DEST" ]; then
-		target=$(readlink "$DEST" 2>/dev/null || true)
-		if [ "$target" = "$REPO_BIN" ]; then
-			printf 'Already deployed: %s -> %s\n' "$DEST" "$REPO_BIN"
-			return 0
-		fi
-		# Stale symlink — replace.
-		rm -- "$DEST"
-		ln -s "$REPO_BIN" "$DEST"
-		printf 'Updated symlink: %s -> %s\n' "$DEST" "$REPO_BIN"
-		return 0
-	fi
-
-	if [ -e "$DEST" ]; then
-		# Regular file or directory — remove and replace with symlink.
-		# The legacy deploy was a directory with per-action scripts.
-		rm -rf -- "$DEST"
-	fi
-
-	ln -s "$REPO_BIN" "$DEST"
-	printf 'Deployed: %s -> %s\n' "$DEST" "$REPO_BIN"
-}
-
 do_check() {
 	status=0
 
-	# --- check symlink deployment ---
+	# --- symlink status (informational only; owned by Bootstrap startup hook) ---
 	if [ ! -L "$DEST" ]; then
 		if [ -e "$DEST" ]; then
-			perms=$(stat -f '%Sp' -- "$DEST" 2>/dev/null || printf 'unknown')
-			printf 'FAIL: %s exists but is not a symlink (found %s)\n' "$DEST" "$perms" >&2
+			printf 'INFO: %s exists but is not a symlink\n' "$DEST"
+			printf 'INFO: symlink is owned by the Bootstrap startup hook (scripts/bootstrap.sh)\n'
 		else
-			printf 'FAIL: symlink missing: %s\n' "$DEST" >&2
+			printf 'INFO: symlink not present: %s (Bootstrap startup hook will create it on next herdr session start)\n' "$DEST"
 		fi
-		printf 'Expected: %s -> %s\n' "$DEST" "$REPO_BIN" >&2
-		printf 'Fix: run ./install.sh\n' >&2
-		status=1
 	else
 		target=$(readlink "$DEST" 2>/dev/null || true)
 		if [ "$target" != "$REPO_BIN" ]; then
-			printf 'FAIL: symlink points to wrong target\n' >&2
-			printf '  Actual: %s -> %s\n' "$DEST" "$target" >&2
-			printf '  Expected: %s -> %s\n' "$DEST" "$REPO_BIN" >&2
-			printf 'Fix: run ./install.sh\n' >&2
-			status=1
+			printf 'INFO: symlink points elsewhere: %s -> %s\n' "$DEST" "$target"
+			printf 'INFO: expected %s -> %s (managed by Bootstrap startup hook)\n' "$DEST" "$REPO_BIN"
 		else
 			printf 'OK: symlink %s -> %s\n' "$DEST" "$REPO_BIN"
-		fi
-		# Also verify the target is executable
-		if [ ! -x "$REPO_BIN" ]; then
-			printf 'FAIL: repo binary not executable: %s\n' "$REPO_BIN" >&2
-			status=1
 		fi
 	fi
 
@@ -318,7 +274,7 @@ do_check() {
 			# Validate required bindings exist with correct dispatcher form.
 			# The reference snippet uses "$HOME/.local/bin/herdr-mouse <action>" (space).
 			# Legacy slash form ("$HOME/.local/bin/herdr-mouse/focus-left") is considered wrong
-			# because after symlink deploy that path no longer exists.
+			# because after symlink that path no longer exists.
 			missing=""
 			# --- check config block (bindings contain literal $HOME — never expand) ---
 			# shellcheck disable=SC2016 # intentional: $HOME must stay literal in TOML
@@ -414,7 +370,8 @@ case "${1:-}" in
 	usage
 	;;
 "")
-	do_install
+	usage >&2
+	exit 1
 	;;
 *)
 	printf 'Unknown argument: %s\n' "$1" >&2
