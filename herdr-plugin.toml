@@ -66,3 +66,6 @@ id = "prev-workspace"
 title = "Previous workspace"
 description = "Cycle to the previous workspace"
 command = ["bin/herdr-mouse", "prev-workspace"]
+
+[[startup]]
+command = ["scripts/bootstrap.sh"]

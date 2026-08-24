@@ -37,9 +37,18 @@ setup() {
   grep -Eq '^[[:space:]]*platforms[[:space:]]*=[[:space:]]*\["macos",[[:space:]]*"linux"\]' "$MANIFEST"
 }
 
-@test "manifest declares no [[build]] or [[startup]]" {
+@test "manifest declares no [[build]]" {
   ! grep -Eq '^[[:space:]]*\[\[build\]\]' "$MANIFEST"
-  ! grep -Eq '^[[:space:]]*\[\[startup\]\]' "$MANIFEST"
+}
+
+@test "manifest declares one [[startup]]" {
+  count="$(grep -c '^\[\[startup\]\]' "$MANIFEST" || true)"
+  [ "$count" -eq 1 ]
+}
+
+@test "manifest startup command is scripts/bootstrap.sh" {
+  grep -Fq 'command = ["scripts/bootstrap.sh"]' "$MANIFEST"
+  [ -x "$REPO_ROOT/scripts/bootstrap.sh" ]
 }
 
 @test "manifest declares nine [[actions]]" {
@@ -54,12 +63,14 @@ setup() {
 }
 
 @test "every action command starts with bin/herdr-mouse" {
-  # Count command lines and compare to those containing bin/herdr-mouse as first argv.
+  # Count action commands vs those containing bin/herdr-mouse as first argv.
+  # Total command lines is actions (9) + startup (1) = 10.
   total="$(grep -c '^[[:space:]]*command[[:space:]]*=' "$MANIFEST" || true)"
   ok="$(grep -c 'command[[:space:]]*=[[:space:]]*\["bin/herdr-mouse"' "$MANIFEST" || true)"
-  [ "$total" -eq 9 ]
+  startup="$(grep -c 'command[[:space:]]*=[[:space:]]*\["scripts/bootstrap.sh"' "$MANIFEST" || true)"
+  [ "$total" -eq 10 ]
   [ "$ok" -eq 9 ]
-  [ "$total" -eq "$ok" ]
+  [ "$startup" -eq 1 ]
 }
 
 @test "every action argv[0] resolves to an executable inside the repo" {
