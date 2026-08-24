@@ -12,6 +12,155 @@ REPO_BIN="$SCRIPT_DIR/bin/herdr-mouse"
 REF_SNIPPET="$SCRIPT_DIR/openlogi/per-app-bindings.toml"
 DEST="$HOME/.local/bin/herdr-mouse"
 CONFIG="$HOME/.config/openlogi/config.toml"
+KEYBINDING_CONFIG="$HOME/.config/openlogi-herdr/config.toml"
+VALID_INPUTS="Back Forward GestureButton DpiToggle ThumbwheelScrollUp ThumbwheelScrollDown GestureUp GestureDown"
+VALID_ACTIONS="focus-left focus-right focus-up focus-down zoom-toggle next-tab prev-tab next-workspace prev-workspace"
+
+is_valid_input() {
+	case " $VALID_INPUTS " in
+		*" $1 "*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+is_valid_action() {
+	case " $VALID_ACTIONS " in
+		*" $1 "*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+validate_keybinding_config() {
+	if [ ! -f "$KEYBINDING_CONFIG" ]; then
+		return 0
+	fi
+	_v_status=0
+	_in_section=0
+	while IFS= read -r _raw || [ -n "$_raw" ]; do
+		_line=$(printf '%s' "$_raw" | tr -d '\r')
+		_trimmed=$(printf '%s' "$_line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_trimmed" in
+			""|\#*) continue ;;
+		esac
+		case "$_trimmed" in
+			\[*\]*)
+				_sec=$(printf '%s' "$_trimmed" | sed 's/[[:space:]]*#.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+				if [ "$_sec" = "[keybindings]" ]; then
+					_in_section=1
+				else
+					_in_section=0
+				fi
+				continue
+				;;
+		esac
+		if [ "$_in_section" -eq 0 ]; then
+			continue
+		fi
+		_no_comment=$(printf '%s' "$_line" | sed 's/#.*//')
+		_stripped=$(printf '%s' "$_no_comment" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_stripped" in
+			""|\#*) continue ;;
+		esac
+		case "$_stripped" in
+			*"="*) ;;
+			*) continue ;;
+		esac
+		_key=$(printf '%s' "$_stripped" | sed -E 's/^([^=]+)=.*/\1/' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		_val_raw=$(printf '%s' "$_stripped" | sed -E 's/^[^=]*=[[:space:]]*//')
+		_val_trim=$(printf '%s' "$_val_raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		_first=$(printf '%s' "$_val_trim" | cut -c1 2>/dev/null || printf '%s' "$_val_trim" | sed 's/^\(.\)/\1/')
+		if [ "$_first" = '"' ]; then
+			_val=$(printf '%s' "$_val_trim" | sed -E 's/^"([^"]*)".*/\1/')
+		elif [ "$_first" = "'" ]; then
+			_val=$(printf '%s' "$_val_trim" | sed -E "s/^'([^']*)'.*/\1/")
+		else
+			_val=$(printf '%s' "$_val_trim" | sed -E 's/[[:space:]].*//')
+		fi
+		if ! is_valid_input "$_key"; then
+			printf 'FAIL: Keybinding config %s: unknown input '\''%s'\''\n' "$KEYBINDING_CONFIG" "$_key" >&2
+			printf 'Valid inputs: Back, Forward, GestureButton, DpiToggle, ThumbwheelScrollUp, ThumbwheelScrollDown, GestureUp, GestureDown\n' >&2
+			printf 'Fix: edit %s — see openlogi/herdr-mouse.example.toml for valid inputs\n' "$KEYBINDING_CONFIG" >&2
+			_v_status=1
+			continue
+		fi
+		if [ -z "$_val" ] || ! is_valid_action "$_val"; then
+			if [ -z "$_val" ]; then
+				printf 'FAIL: Keybinding config %s: empty or unknown action for input '\''%s'\''\n' "$KEYBINDING_CONFIG" "$_key" >&2
+			else
+				printf 'FAIL: Keybinding config %s: unknown action '\''%s'\'' for input '\''%s'\''\n' "$KEYBINDING_CONFIG" "$_val" "$_key" >&2
+			fi
+			printf 'Valid actions: focus-left, focus-right, focus-up, focus-down, zoom-toggle, next-tab, prev-tab, next-workspace, prev-workspace\n' >&2
+			printf 'Fix: edit %s — see openlogi/herdr-mouse.example.toml for valid actions\n' "$KEYBINDING_CONFIG" >&2
+			_v_status=1
+			continue
+		fi
+	done < "$KEYBINDING_CONFIG"
+	if [ "$_v_status" -eq 1 ]; then
+		return 1
+	fi
+	return 0
+}
+
+_get_effective_action() {
+	_ge_input="$1"
+	_ge_default="$2"
+	if [ ! -f "$KEYBINDING_CONFIG" ]; then
+		printf '%s' "$_ge_default"
+		return 0
+	fi
+	_ge_found=""
+	_ge_in_section=0
+	while IFS= read -r _ge_raw || [ -n "$_ge_raw" ]; do
+		_ge_line=$(printf '%s' "$_ge_raw" | tr -d '\r')
+		_ge_trim=$(printf '%s' "$_ge_line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_ge_trim" in
+			""|\#*) continue ;;
+		esac
+		case "$_ge_trim" in
+			\[*\]*)
+				_ge_sec=$(printf '%s' "$_ge_trim" | sed 's/[[:space:]]*#.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+				if [ "$_ge_sec" = "[keybindings]" ]; then
+					_ge_in_section=1
+				else
+					_ge_in_section=0
+				fi
+				continue
+				;;
+		esac
+		if [ "$_ge_in_section" -eq 0 ]; then
+			continue
+		fi
+		_ge_no_comment=$(printf '%s' "$_ge_line" | sed 's/#.*//')
+		_ge_stripped=$(printf '%s' "$_ge_no_comment" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		case "$_ge_stripped" in
+			""|\#*) continue ;;
+			*"="*) ;;
+			*) continue ;;
+		esac
+		_ge_key=$(printf '%s' "$_ge_stripped" | sed -E 's/^([^=]+)=.*/\1/' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		if [ "$_ge_key" != "$_ge_input" ]; then
+			continue
+		fi
+		_ge_val_raw=$(printf '%s' "$_ge_stripped" | sed -E 's/^[^=]*=[[:space:]]*//')
+		_ge_val_trim=$(printf '%s' "$_ge_val_raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+		_ge_first=$(printf '%s' "$_ge_val_trim" | cut -c1 2>/dev/null || printf '%s' "$_ge_val_trim" | sed 's/^\(.\)/\1/')
+		if [ "$_ge_first" = '"' ]; then
+			_ge_val=$(printf '%s' "$_ge_val_trim" | sed -E 's/^"([^"]*)".*/\1/')
+		elif [ "$_ge_first" = "'" ]; then
+			_ge_val=$(printf '%s' "$_ge_val_trim" | sed -E "s/^'([^']*)'.*/\1/")
+		else
+			_ge_val=$(printf '%s' "$_ge_val_trim" | sed -E 's/[[:space:]].*//')
+		fi
+		if is_valid_input "$_ge_key" && [ -n "$_ge_val" ] && is_valid_action "$_ge_val"; then
+			_ge_found="$_ge_val"
+		fi
+	done < "$KEYBINDING_CONFIG"
+	if [ -n "$_ge_found" ]; then
+		printf '%s' "$_ge_found"
+	else
+		printf '%s' "$_ge_default"
+	fi
+}
 
 usage() {
 	cat <<'USAGE'
@@ -29,29 +178,35 @@ USAGE
 }
 
 get_overlay_body() {
-	# Print the binding lines to insert under the per_app_bindings header.
-	# Prefer the canonical reference file so the snippet stays single-source-of-truth;
-	# strip the leading comment header (everything before the first binding) so the
-	# inserted block is clean TOML. Fall back to inline heredoc.
-	if [ -f "$REF_SNIPPET" ]; then
-		if grep -q '^Back = ' "$REF_SNIPPET" 2>/dev/null; then
-			sed -n '/^Back = /,$ p' "$REF_SNIPPET"
-		else
-			cat "$REF_SNIPPET"
-		fi
-	else
-		cat <<'TOML'
-Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-left" }
-Forward = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-right" }
-GestureButton = { RunShellCommand = "$HOME/.local/bin/herdr-mouse zoom-toggle" }
-DpiToggle = { RunShellCommand = "$HOME/.local/bin/herdr-mouse next-tab" }
-ThumbwheelScrollUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse prev-workspace" }
-ThumbwheelScrollDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse next-workspace" }
-
-# Gesture pad directions (add if your device exposes them and you want up/down focus):
-# GestureUp   = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-up" }
-# GestureDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-down" }
-TOML
+	# Generate binding lines from effective Keybinding mapping (custom + defaults).
+	# Defaults mirror openlogi/per-app-bindings.toml; custom overrides when present.
+	_eff_back=$(_get_effective_action "Back" "focus-left")
+	_eff_forward=$(_get_effective_action "Forward" "focus-right")
+	_eff_gesture_button=$(_get_effective_action "GestureButton" "zoom-toggle")
+	_eff_dpi_toggle=$(_get_effective_action "DpiToggle" "next-tab")
+	_eff_thumb_up=$(_get_effective_action "ThumbwheelScrollUp" "prev-workspace")
+	_eff_thumb_down=$(_get_effective_action "ThumbwheelScrollDown" "next-workspace")
+	_eff_gesture_up=$(_get_effective_action "GestureUp" "")
+	_eff_gesture_down=$(_get_effective_action "GestureDown" "")
+	# shellcheck disable=SC2016
+	printf 'Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_back"
+	# shellcheck disable=SC2016
+	printf 'Forward = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_forward"
+	# shellcheck disable=SC2016
+	printf 'GestureButton = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_gesture_button"
+	# shellcheck disable=SC2016
+	printf 'DpiToggle = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_dpi_toggle"
+	# shellcheck disable=SC2016
+	printf 'ThumbwheelScrollUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_thumb_up"
+	# shellcheck disable=SC2016
+	printf 'ThumbwheelScrollDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_thumb_down"
+	if [ -n "$_eff_gesture_up" ]; then
+		# shellcheck disable=SC2016
+		printf 'GestureUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_gesture_up"
+	fi
+	if [ -n "$_eff_gesture_down" ]; then
+		# shellcheck disable=SC2016
+		printf 'GestureDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_gesture_down"
 	fi
 }
 
@@ -256,6 +411,16 @@ do_check() {
 		fi
 	fi
 
+	# --- validate Keybinding config (strict) ---
+	if [ -f "$KEYBINDING_CONFIG" ]; then
+		printf 'INFO: using Keybinding config %s\n' "$KEYBINDING_CONFIG"
+		if ! validate_keybinding_config; then
+			status=1
+		else
+			printf 'OK: Keybinding config %s is valid\n' "$KEYBINDING_CONFIG"
+		fi
+	fi
+
 	# --- check OpenLogi config ---
 	if [ ! -f "$CONFIG" ]; then
 		printf 'FAIL: OpenLogi config not found: %s\n' "$CONFIG" >&2
@@ -271,53 +436,78 @@ do_check() {
 			print_reference_toml >&2
 			status=1
 		else
-			# Validate required bindings exist with correct dispatcher form.
-			# The reference snippet uses "$HOME/.local/bin/herdr-mouse <action>" (space).
-			# Legacy slash form ("$HOME/.local/bin/herdr-mouse/focus-left") is considered wrong
-			# because after symlink that path no longer exists.
+			# Validate required bindings against effective Keybinding mapping.
+			# Required: 6 core inputs with effective actions; optional GestureUp/Down only when set.
+			_eff_back=$(_get_effective_action "Back" "focus-left")
+			_eff_forward=$(_get_effective_action "Forward" "focus-right")
+			_eff_gesture_button=$(_get_effective_action "GestureButton" "zoom-toggle")
+			_eff_dpi_toggle=$(_get_effective_action "DpiToggle" "next-tab")
+			_eff_thumb_up=$(_get_effective_action "ThumbwheelScrollUp" "prev-workspace")
+			_eff_thumb_down=$(_get_effective_action "ThumbwheelScrollDown" "next-workspace")
+			_eff_gesture_up=$(_get_effective_action "GestureUp" "")
+			_eff_gesture_down=$(_get_effective_action "GestureDown" "")
 			missing=""
-			# --- check config block (bindings contain literal $HOME — never expand) ---
-			# shellcheck disable=SC2016 # intentional: $HOME must stay literal in TOML
-			if ! grep -Fq 'Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-left" }' "$CONFIG"; then
-				missing="${missing}  - Back -> focus-left\n"
+			# shellcheck disable=SC2016
+			if ! grep -Fq "Back = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_back\" }" "$CONFIG"; then
+				missing="${missing}  - Back -> $_eff_back\n"
 			fi
-			# shellcheck disable=SC2016 # intentional: $HOME must stay literal in TOML
-			if ! grep -Fq 'Forward = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-right" }' "$CONFIG"; then
-				missing="${missing}  - Forward -> focus-right\n"
+			# shellcheck disable=SC2016
+			if ! grep -Fq "Forward = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_forward\" }" "$CONFIG"; then
+				missing="${missing}  - Forward -> $_eff_forward\n"
 			fi
-			# shellcheck disable=SC2016 # intentional: $HOME must stay literal in TOML
-			if ! grep -Fq 'GestureButton = { RunShellCommand = "$HOME/.local/bin/herdr-mouse zoom-toggle" }' "$CONFIG"; then
-				missing="${missing}  - GestureButton -> zoom-toggle\n"
+			# shellcheck disable=SC2016
+			if ! grep -Fq "GestureButton = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_gesture_button\" }" "$CONFIG"; then
+				missing="${missing}  - GestureButton -> $_eff_gesture_button\n"
 			fi
-			# shellcheck disable=SC2016 # intentional: $HOME must stay literal in TOML
-			if ! grep -Fq 'DpiToggle = { RunShellCommand = "$HOME/.local/bin/herdr-mouse next-tab" }' "$CONFIG"; then
-				missing="${missing}  - DpiToggle -> next-tab\n"
+			# shellcheck disable=SC2016
+			if ! grep -Fq "DpiToggle = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_dpi_toggle\" }" "$CONFIG"; then
+				missing="${missing}  - DpiToggle -> $_eff_dpi_toggle\n"
 			fi
-			# shellcheck disable=SC2016 # intentional: $HOME must stay literal in TOML
-			if ! grep -Fq 'ThumbwheelScrollUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse prev-workspace" }' "$CONFIG"; then
-				missing="${missing}  - ThumbwheelScrollUp -> prev-workspace\n"
+			# shellcheck disable=SC2016
+			if ! grep -Fq "ThumbwheelScrollUp = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_thumb_up\" }" "$CONFIG"; then
+				missing="${missing}  - ThumbwheelScrollUp -> $_eff_thumb_up\n"
 			fi
-			# shellcheck disable=SC2016 # intentional: $HOME must stay literal in TOML
-			if ! grep -Fq 'ThumbwheelScrollDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse next-workspace" }' "$CONFIG"; then
-				missing="${missing}  - ThumbwheelScrollDown -> next-workspace\n"
+			# shellcheck disable=SC2016
+			if ! grep -Fq "ThumbwheelScrollDown = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_thumb_down\" }" "$CONFIG"; then
+				missing="${missing}  - ThumbwheelScrollDown -> $_eff_thumb_down\n"
+			fi
+			if [ -n "$_eff_gesture_up" ]; then
+				# shellcheck disable=SC2016
+				if ! grep -Fq "GestureUp = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_gesture_up\" }" "$CONFIG"; then
+					missing="${missing}  - GestureUp -> $_eff_gesture_up\n"
+				fi
+			fi
+			if [ -n "$_eff_gesture_down" ]; then
+				# shellcheck disable=SC2016
+				if ! grep -Fq "GestureDown = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_gesture_down\" }" "$CONFIG"; then
+					missing="${missing}  - GestureDown -> $_eff_gesture_down\n"
+				fi
 			fi
 
 			if [ -n "$missing" ]; then
 				printf 'FAIL: OpenLogi config has per_app_bindings block but required bindings are missing or incorrect:\n' >&2
 				printf '%b' "$missing" >&2
 				printf 'Expected bindings (exact lines to have in the block):\n' >&2
-				# shellcheck disable=SC2016 # intentional: $HOME must stay literal in TOML
-				printf '  Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-left" }\n' >&2
-				# shellcheck disable=SC2016 # intentional: $HOME must stay literal in TOML
-				printf '  Forward = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-right" }\n' >&2
-				# shellcheck disable=SC2016 # intentional: $HOME must stay literal in TOML
-				printf '  GestureButton = { RunShellCommand = "$HOME/.local/bin/herdr-mouse zoom-toggle" }\n' >&2
-				# shellcheck disable=SC2016 # intentional: $HOME must stay literal in TOML
-				printf '  DpiToggle = { RunShellCommand = "$HOME/.local/bin/herdr-mouse next-tab" }\n' >&2
-				# shellcheck disable=SC2016 # intentional: $HOME must stay literal in TOML
-				printf '  ThumbwheelScrollUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse prev-workspace" }\n' >&2
-				# shellcheck disable=SC2016 # intentional: $HOME must stay literal in TOML
-				printf '  ThumbwheelScrollDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse next-workspace" }\n' >&2
+				# shellcheck disable=SC2016
+				printf '  Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_back" >&2
+				# shellcheck disable=SC2016
+				printf '  Forward = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_forward" >&2
+				# shellcheck disable=SC2016
+				printf '  GestureButton = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_gesture_button" >&2
+				# shellcheck disable=SC2016
+				printf '  DpiToggle = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_dpi_toggle" >&2
+				# shellcheck disable=SC2016
+				printf '  ThumbwheelScrollUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_thumb_up" >&2
+				# shellcheck disable=SC2016
+				printf '  ThumbwheelScrollDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_thumb_down" >&2
+				if [ -n "$_eff_gesture_up" ]; then
+					# shellcheck disable=SC2016
+					printf '  GestureUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_gesture_up" >&2
+				fi
+				if [ -n "$_eff_gesture_down" ]; then
+					# shellcheck disable=SC2016
+					printf '  GestureDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_eff_gesture_down" >&2
+				fi
 				printf '\nFix: ensure %s contains:\n' "$CONFIG" >&2
 				print_reference_toml >&2
 				status=1
