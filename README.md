@@ -219,6 +219,41 @@ killall OpenLogi; open -a OpenLogi              # reload
 
 With the `auto-apply` flag enabled (`touch "$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply"`), every herdr restart re-derives the overlay from the effective mapping automatically.
 
+### Keybinding picker (TUI)
+
+Prefer an interactive UI over hand-editing TOML? The `Keybinding picker` (`bin/herdr-mouse-tui`) edits `~/.config/openlogi-herdr/config.toml` `[keybindings]` and re-derives the `Binding overlay` via the same `install.sh --apply` path (atomic, backup `*.bak.*`, `--check` validated).
+
+**Entry points**
+
+- Manual / clone installs: `./install.sh --tui` (thin wrapper → `bin/herdr-mouse-tui`; try `./install.sh --tui --help` and `--dry-run`)
+- herdr installs: `herdr plugin action invoke openlogi.herdr-mouse configure` — also visible via `herdr plugin action list --plugin openlogi.herdr-mouse` as a `popup` (80% × 80%)
+
+**What you see**
+
+- Table of 8 inputs × 9 actions (see `CONTEXT.md` `Keybinding` + `Dispatcher`): `Input | Effective action | Source (default/custom)` with terse labels in-table and one-line descriptions in the action picker.
+- `GestureUp` / `GestureDown` always shown as `— not set (default: omitted) —` when absent.
+- Footer `↑/↓ move  Enter pick  s Save+Apply  R Reset all  q Cancel  ? Help`.
+
+**Picker**
+
+- `Enter` on a row opens the action picker (9 actions + `— reset to default —` + `Cancel`) — `fzf` when present, numbered `select` fallback otherwise (hint `tip: brew install fzf for fuzzy picker` when absent).
+
+**Save / Reset / Safety**
+
+- `s` validates, atomically writes `[keybindings]` (minimal — only non-default rows), backs up `~/.config/openlogi/config.toml` as `.bak.*`, regenerates `per_app_bindings."com.mitchellh.ghostty"` under the detected device header, prints `--check` inline, then prompts `Reload OpenLogi? [y/N]` (only `y` runs `killall OpenLogi; open -a OpenLogi` — never auto-kills).
+- `R` Reset all confirms then deletes the `Keybinding config` (or clears the `[keybindings]` section, preserving other sections) so next apply reverts to `openlogi/per-app-bindings.toml` defaults.
+- `q` with dirty state prompts `Save changes? [y/N/c]` — `c` returns to picker.
+
+**Optional keybinding for the picker** (no default shipped — add to your herdr config if you want it, e.g. `~/.config/herdr/config.toml`):
+
+```toml
+[[keys.command]]
+key = "prefix+alt+m"
+command = "herdr plugin action invoke openlogi.herdr-mouse configure"
+```
+
+Notes: `bin/herdr-mouse-tui --help` documents all flags; `--dry-run` prints the 8-row table without interactivity (useful for tests); `install.sh --tui` delegates to `bin/herdr-mouse-tui` with the same flags.
+
 ---
 
 ## How it works

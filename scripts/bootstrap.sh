@@ -145,7 +145,7 @@ _bootstrap_get_effective_action() {
 		if _bootstrap_is_valid_input "$_bge_key" 2>/dev/null && [ -n "$_bge_val" ] && _bootstrap_is_valid_action "$_bge_val" 2>/dev/null; then
 			_bge_found="$_bge_val"
 		fi
-	done < "$_keybinding_config" 2>/dev/null || true
+	done <"$_keybinding_config" 2>/dev/null || true
 	if [ -n "$_bge_found" ]; then
 		printf '%s' "$_bge_found" 2>/dev/null || printf '%s' "$_bge_default"
 	else
@@ -235,14 +235,14 @@ _eff_up=$(_bootstrap_get_effective_action "ThumbwheelScrollUp" "prev-workspace" 
 _eff_down=$(_bootstrap_get_effective_action "ThumbwheelScrollDown" "next-workspace" 2>/dev/null || printf 'next-workspace')
 _eff_gup=$(_bootstrap_get_effective_action "GestureUp" "" 2>/dev/null || printf '')
 _eff_gdown=$(_bootstrap_get_effective_action "GestureDown" "" 2>/dev/null || printf '')
-if [ -f "$openlogi_config" ] \
-	&& grep -q 'per_app_bindings\."com\.mitchellh\.ghostty"' "$openlogi_config" 2>/dev/null \
-	&& grep -Fq "Back = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_back\" }" "$openlogi_config" 2>/dev/null \
-	&& grep -Fq "Forward = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_forward\" }" "$openlogi_config" 2>/dev/null \
-	&& grep -Fq "GestureButton = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_gesture_button\" }" "$openlogi_config" 2>/dev/null \
-	&& grep -Fq "DpiToggle = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_dpi\" }" "$openlogi_config" 2>/dev/null \
-	&& grep -Fq "ThumbwheelScrollUp = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_up\" }" "$openlogi_config" 2>/dev/null \
-	&& grep -Fq "ThumbwheelScrollDown = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_down\" }" "$openlogi_config" 2>/dev/null; then
+if [ -f "$openlogi_config" ] &&
+	grep -q 'per_app_bindings\."com\.mitchellh\.ghostty"' "$openlogi_config" 2>/dev/null &&
+	grep -Fq "Back = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_back\" }" "$openlogi_config" 2>/dev/null &&
+	grep -Fq "Forward = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_forward\" }" "$openlogi_config" 2>/dev/null &&
+	grep -Fq "GestureButton = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_gesture_button\" }" "$openlogi_config" 2>/dev/null &&
+	grep -Fq "DpiToggle = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_dpi\" }" "$openlogi_config" 2>/dev/null &&
+	grep -Fq "ThumbwheelScrollUp = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_up\" }" "$openlogi_config" 2>/dev/null &&
+	grep -Fq "ThumbwheelScrollDown = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_down\" }" "$openlogi_config" 2>/dev/null; then
 	_gup_ok=1
 	_gdown_ok=1
 	if [ -n "$_eff_gup" ]; then
@@ -274,28 +274,28 @@ done
 if [ -f "$openlogi_config" ]; then
 	cp -p -- "$openlogi_config" "$backup" 2>/dev/null || cp -- "$openlogi_config" "$backup" 2>/dev/null || true
 else
-	: > "$backup" 2>/dev/null || true
+	: >"$backup" 2>/dev/null || true
 fi
 
 tmp_overlay=$(mktemp 2>/dev/null || mktemp /tmp/herdr_overlay.XXXXXX 2>/dev/null || printf '/tmp/herdr_overlay.$$')
 tmp_new=$(mktemp 2>/dev/null || mktemp /tmp/herdr_new.XXXXXX 2>/dev/null || printf '/tmp/herdr_new.$$')
 # shellcheck disable=SC2064
 trap 'rm -f "$tmp_overlay" "$tmp_new" 2>/dev/null || true' EXIT 2>/dev/null || true
-printf '%s\n' "$header" > "$tmp_overlay" 2>/dev/null || exit 0
-_bootstrap_get_overlay_body >> "$tmp_overlay" 2>/dev/null || exit 0
+printf '%s\n' "$header" >"$tmp_overlay" 2>/dev/null || exit 0
+_bootstrap_get_overlay_body >>"$tmp_overlay" 2>/dev/null || exit 0
 
 if [ -f "$openlogi_config" ]; then
 	found=0
 	in_target=0
 	need_append=1
-	: > "$tmp_new" 2>/dev/null || exit 0
+	: >"$tmp_new" 2>/dev/null || exit 0
 	while IFS= read -r line || [ -n "$line" ]; do
 		if [ "$line" = "$header" ]; then
 			if [ "$found" -eq 0 ]; then
 				found=1
 				need_append=0
 				in_target=1
-				cat "$tmp_overlay" >> "$tmp_new" 2>/dev/null || true
+				cat "$tmp_overlay" >>"$tmp_new" 2>/dev/null || true
 				continue
 			else
 				in_target=1
@@ -304,36 +304,36 @@ if [ -f "$openlogi_config" ]; then
 		fi
 		if [ "$in_target" -eq 1 ]; then
 			case "$line" in
-				\[*)
-					in_target=0
-					printf '%s\n' "$line" >> "$tmp_new" 2>/dev/null || true
-					;;
-				*)
-					continue
-					;;
+			\[*)
+				in_target=0
+				printf '%s\n' "$line" >>"$tmp_new" 2>/dev/null || true
+				;;
+			*)
+				continue
+				;;
 			esac
 		else
-			printf '%s\n' "$line" >> "$tmp_new" 2>/dev/null || true
+			printf '%s\n' "$line" >>"$tmp_new" 2>/dev/null || true
 		fi
-	done < "$openlogi_config"
+	done <"$openlogi_config"
 	if [ "$need_append" -eq 1 ]; then
 		if [ -s "$tmp_new" ]; then
-			printf '\n' >> "$tmp_new" 2>/dev/null || true
+			printf '\n' >>"$tmp_new" 2>/dev/null || true
 		fi
-		cat "$tmp_overlay" >> "$tmp_new" 2>/dev/null || true
+		cat "$tmp_overlay" >>"$tmp_new" 2>/dev/null || true
 	fi
 	if [ ! -s "$tmp_new" ]; then
 		exit 0
 	fi
 	tmp_write="${openlogi_config}.tmp.$$"
-	if cat "$tmp_new" > "$tmp_write" 2>/dev/null; then
+	if cat "$tmp_new" >"$tmp_write" 2>/dev/null; then
 		mv -- "$tmp_write" "$openlogi_config" 2>/dev/null || mv -- "$tmp_new" "$openlogi_config" 2>/dev/null || true
 	else
 		mv -- "$tmp_new" "$openlogi_config" 2>/dev/null || true
 	fi
 	rm -f "$tmp_new" "$tmp_overlay" "$tmp_write" 2>/dev/null || true
 else
-	cat "$tmp_overlay" > "$openlogi_config" 2>/dev/null || true
+	cat "$tmp_overlay" >"$openlogi_config" 2>/dev/null || true
 	rm -f "$tmp_new" "$tmp_overlay" 2>/dev/null || true
 fi
 
