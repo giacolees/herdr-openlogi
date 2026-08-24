@@ -303,9 +303,47 @@ do_apply() {
 		# Idempotent insert-or-replace: replace existing block or append
 		found=0
 		in_target=0
+		in_dotted=0
 		need_append=1
 		: >"$tmp_new"
 		while IFS= read -r line || [ -n "$line" ]; do
+			# Pre-filter: skip legacy dotted per_app_bindings subtables for this device
+			# Handles both "ghostty" short and "com.mitchellh.ghostty" bundle dotted forms
+			if [ "$in_dotted" -eq 1 ]; then
+				case "$line" in
+				*"["*)
+					in_dotted=0
+					;;
+				*)
+					continue
+					;;
+				esac
+			fi
+			if printf '%s' "$line" | grep -Fq "[devices.\"$device_key\".per_app_bindings.\"ghostty\"" 2>/dev/null; then
+				in_dotted=1
+				continue
+			fi
+			if printf '%s' "$line" | grep -Fq "[devices.\"$device_key\".per_app_bindings.\"com.mitchellh.ghostty\"." 2>/dev/null; then
+				in_dotted=1
+				continue
+			fi
+			if printf '%s' "$line" | grep -Fq "[per_app_bindings.\"ghostty\"" 2>/dev/null; then
+				in_dotted=1
+				continue
+			fi
+			if printf '%s' "$line" | grep -Fq "[per_app_bindings.\"com.mitchellh.ghostty\"" 2>/dev/null; then
+				# Also catches dotted children; strip global per_app blocks to keep single device header
+				# Device header "[devices.\"..\".per_app_bindings..." does not contain "[per_app", so no false match
+				case "$line" in
+				*"[devices."*)
+					# Device header line containing per_app substring elsewhere — do not strip as global
+					;;
+				*)
+					in_dotted=1
+					continue
+					;;
+				esac
+			fi
 			if [ "$line" = "$header" ]; then
 				if [ "$found" -eq 0 ]; then
 					found=1
