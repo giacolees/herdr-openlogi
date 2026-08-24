@@ -38,37 +38,25 @@ This repo is the versioned source of truth for the dispatcher script, its symlin
 
 ## Install
 
-### Recommended: herdr plugin
+### Recommended: herdr plugin (lean)
 
 ```sh
-herdr plugin install giacolees/herdr-openlogi      # interactive — shows preview, confirm
-herdr plugin install giacolees/herdr-openlogi --yes # non-interactive / scripting (herdr 0.8.2: --yes must follow the repo)
+herdr plugin install giacolees/herdr-openlogi --yes  # interactive: omit --yes (herdr 0.8.2: --yes must follow the repo)
+touch "$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply"
+herdr server stop; herdr plugin list >/dev/null
+killall OpenLogi; open -a OpenLogi
 ```
+
+> **⚠️ Overwrite warning:** the `touch …/auto-apply` opts Bootstrap into **automatically patching** `~/.config/openlogi/config.toml` on every herdr session restore until you `rm` the flag file. A timestamped backup (`config.toml.bak.*`) is created before each write and the patch is idempotent, but **`config.toml` is owned by OpenLogi** — OpenLogi updates can overwrite it (and Bootstrap will re-apply on the next restart, creating another backup). Only use lean mode if you're comfortable with the plugin owning that block. To stay manual, skip the `touch` and add the overlay by hand (next section).
 
 This is the primary install path. herdr validates the Plugin manifest (`herdr-plugin.toml`), registers nine actions (one per Dispatcher subcommand), and runs the Bootstrap startup hook once after session restore.
 
-The Bootstrap hook (`scripts/bootstrap.sh` via `[[startup]]` in `herdr-plugin.toml`) idempotently creates the symlink the Binding overlay calls:
+The Bootstrap hook (`scripts/bootstrap.sh` via `[[startup]]` in `herdr-plugin.toml`) does two things on restore:
 
-```
-~/.local/bin/herdr-mouse → $HERDR_PLUGIN_ROOT/bin/herdr-mouse
-```
+1. Idempotently creates the symlink the Binding overlay calls: `~/.local/bin/herdr-mouse → $HERDR_PLUGIN_ROOT/bin/herdr-mouse`
+2. **If** `$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply` exists, idempotently patches the `per_app_bindings."com.mitchellh.ghostty"` block in `~/.config/openlogi/config.toml` (backup, same logic as `install.sh --apply`). Write a device key into the flag file (`echo "direct:…" > …/auto-apply`) if auto-detect is ambiguous.
 
-Re-installing or updating the plugin retargets the symlink automatically. No manual `install.sh` step is needed for the symlink.
-
-> **Note:** the symlink is created by the Bootstrap startup hook on the *next* herdr session restore. After a fresh `install`, either restart herdr (`herdr server stop` + next `herdr …` command) or simulate it once:
-> ```sh
-> HERDR_PLUGIN_ROOT=~/.config/herdr/plugins/github/openlogi.herdr-mouse-*/ \
->   ~/.config/herdr/plugins/github/openlogi.herdr-mouse-*/scripts/bootstrap.sh
-> ls -l ~/.local/bin/herdr-mouse
-> ```
-
-> **Lean opt-in:** to have Bootstrap also patch the overlay automatically (no manual paste), enable it once:
-> ```sh
-> touch "$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply"
-> # optional: echo "direct:046d:b034:serial:YOURS" > "$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply"
-> herdr server stop; herdr plugin list >/dev/null  # next restore patches ~/.config/openlogi/config.toml (backup, idempotent)
-> ```
-> Default remains manual — auto-patch only runs when that flag file exists — so OpenLogi's ownership of `config.toml` is still respected until you opt in.
+Re-installing or updating the plugin retargets the symlink (and re-patches the overlay if opted in) automatically. No manual `install.sh` step is needed.
 
 Verify the deployment:
 
@@ -80,11 +68,11 @@ herdr plugin action list --plugin openlogi.herdr-mouse  # lists the nine actions
 
 > **Marketplace:** the plugin is listable on <https://herdr.dev/plugins/> once the repository owner adds the `herdr-plugin` GitHub topic to `giacolees/herdr-openlogi` at release (index refresh ≤ 30 min).
 
-You still need the OpenLogi Binding overlay once (next section). By default the plugin does **not** auto-edit OpenLogi's app-managed config — enable the lean opt-in above if you want Bootstrap to patch it for you.
+You still need the OpenLogi Binding overlay once (next section) — lean mode above handles it automatically; otherwise add it by hand.
 
 ### Add the OpenLogi binding overlay
 
-OpenLogi's per-app overlay lives in `~/.config/openlogi/config.toml` under a device-keyed table. You must add it by hand — neither `herdr plugin install` nor `install.sh` edits this file without `--apply`.
+OpenLogi's per-app overlay lives in `~/.config/openlogi/config.toml` under a device-keyed table. With lean mode (flag file present) Bootstrap patches it for you. Otherwise, add it by hand — neither `herdr plugin install` (without the flag) nor `install.sh` edits this file without `--apply`.
 
 **a. Find your device key:**
 
