@@ -21,10 +21,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y shellcheck bats jq
 
       - name: shellcheck
-        run: shellcheck bin/herdr-mouse install.sh
+        run: shellcheck bin/herdr-mouse install.sh scripts/bootstrap.sh
 
       - name: sh syntax check
-        run: sh -n bin/herdr-mouse && sh -n install.sh
+        run: sh -n bin/herdr-mouse && sh -n install.sh && sh -n scripts/bootstrap.sh
 
       - name: bats tests
         run: bats tests/
@@ -35,8 +35,26 @@ jobs:
           FIXTURE_HOME="$(mktemp -d)"
           export HOME="$FIXTURE_HOME"
           echo "Fixture HOME: $HOME"
-          ./install.sh
-          test -L "$HOME/.local/bin/herdr-mouse"
+          # Bare invocation should exit non-zero with usage (symlink no longer owned by install.sh)
+          if ./install.sh 2>&1 | grep -q "Usage:"; then
+            echo "bare usage OK"
+          else
+            echo "FAIL: expected Usage on bare invocation" >&2
+            exit 1
+          fi
+          if ./install.sh >/dev/null 2>&1; then
+            echo "FAIL: bare invocation should exit non-zero" >&2
+            exit 1
+          else
+            echo "bare exits non-zero OK"
+          fi
+          # --check without config should mention symlink informationally
+          if ./install.sh --check 2>&1 | grep -q "INFO: symlink"; then
+            echo "symlink INFO OK (Bootstrap-owned)"
+          else
+            echo "FAIL: expected INFO: symlink" >&2
+            exit 1
+          fi
           mkdir -p "$HOME/.config/openlogi"
           # Build fixture config from reference snippet
           {
@@ -60,3 +78,39 @@ jobs:
             exit 1
           fi
           rm -rf "$FIXTURE_HOME" "$BAD_HOME"
+
+      - name: bootstrap smoke (flag opt-in)
+        run: |
+          set -eu
+          TMP_HOME="$(mktemp -d)"
+          TMP_CFG="$(mktemp -d)"
+          export HOME="$TMP_HOME"
+          export HERDR_PLUGIN_CONFIG_DIR="$TMP_CFG"
+          export HERDR_PLUGIN_ROOT="$PWD"
+          mkdir -p "$HOME/.config/openlogi"
+          printf 'selected_device = "test-device"\n[devices."test-device"]\nname = "x"\n' > "$HOME/.config/openlogi/config.toml"
+          # Without flag: bootstrap must NOT patch overlay
+          bash scripts/bootstrap.sh
+          if grep -q 'per_app_bindings' "$HOME/.config/openlogi/config.toml"; then
+            echo "FAIL: bootstrap patched without flag" >&2; exit 1
+          fi
+          echo "no-flag no-patch OK"
+          # With flag: bootstrap patches overlay
+          touch "$TMP_CFG/auto-apply"
+          bash scripts/bootstrap.sh
+          grep -q 'per_app_bindings' "$HOME/.config/openlogi/config.toml"
+          grep -q 'focus-left' "$HOME/.config/openlogi/config.toml"
+          echo "flag patch OK"
+          # Symlink created
+          test -L "$HOME/.local/bin/herdr-mouse"
+          echo "symlink OK"
+          rm -rf "$TMP_HOME" "$TMP_CFG"
+
+      - name: herdr-plugin.toml sanity
+        run: |
+          grep -q 'id = "openlogi.herdr-mouse"' herdr-plugin.toml
+          grep -q 'version = ' herdr-plugin.toml
+          grep -q '\[\[actions\]\]' herdr-plugin.toml
+          grep -q '\[\[startup\]\]' herdr-plugin.toml
+          ! grep -q '\[\[build\]\]' herdr-plugin.toml
+          echo "manifest sanity OK"

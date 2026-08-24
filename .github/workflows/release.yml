@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y shellcheck bats jq
+
+      - name: Validate
+        run: |
+          shellcheck bin/herdr-mouse install.sh scripts/bootstrap.sh
+          sh -n bin/herdr-mouse && sh -n install.sh && sh -n scripts/bootstrap.sh
+          bats tests/
+          grep -q 'id = "openlogi.herdr-mouse"' herdr-plugin.toml
+          ! grep -q '\[\[build\]\]' herdr-plugin.toml
+          echo "validation OK"
+
+      - name: Extract changelog for tag
+        id: changelog
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          echo "tag=$TAG version=$VERSION" >> "$GITHUB_OUTPUT"
+          # Extract ## [VERSION] section from CHANGELOG.md (Keep a Changelog)
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" {flag=1; next}
+            flag && /^## \[/ {exit}
+            flag {print}
+          ' CHANGELOG.md > /tmp/notes.md
+          if [ ! -s /tmp/notes.md ]; then
+            echo "No CHANGELOG entry for $VERSION — using generated notes" > /tmp/notes.md
+            echo "" >> /tmp/notes.md
+            git log --oneline "$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo HEAD~1)..HEAD" >> /tmp/notes.md || true
+          fi
+          cat /tmp/notes.md
+          # Escape for output (set body file)
+          echo "notes_file=/tmp/notes.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@a06a81a03ee405aabf0c9af58d68e85d3a08d93 # v2.3.3
+        with:
+          body_path: /tmp/notes.md
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
