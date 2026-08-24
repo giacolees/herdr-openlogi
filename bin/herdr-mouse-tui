@@ -770,7 +770,10 @@ _clean_invalid_lines() {
 
 _prompt_reload() {
 	printf 'Reload OpenLogi? [y/N] ' >&2
-	if [ -t 0 ]; then
+	if [ -c /dev/tty ]; then
+		# shellcheck disable=SC3045
+		read -r _reload </dev/tty || _reload="n"
+	elif [ -t 0 ]; then
 		# shellcheck disable=SC3045
 		read -r _reload 2>/dev/tty || _reload="n"
 	else
@@ -778,7 +781,7 @@ _prompt_reload() {
 		read -r _reload || _reload="n"
 	fi
 	case "$_reload" in
-	y|Y) killall OpenLogi 2>/dev/null || true; open -a OpenLogi 2>/dev/null || true; printf 'Reloading OpenLogi...\n' >&2 ;;
+	y|Y) killall OpenLogi 2>/dev/null || killall "openlogi-desktop" 2>/dev/null || true; sleep 0.5; open -a "OpenLogi" 2>/dev/null || open -a "openlogi-desktop" 2>/dev/null || true; printf 'Reloading OpenLogi...\n' >&2 ;;
 	*) printf 'Skip reload — restart OpenLogi manually to apply.\n' >&2 ;;
 	esac
 }
@@ -1235,8 +1238,9 @@ DIRTY=0
 printf 'Keybinding picker — 8 inputs\n'
 print_table
 
-# If stdin is not a tty (e.g. piped test), exit after printing table
-if [ ! -t 0 ]; then
+# If stdin is not a tty and /dev/tty unavailable (piped test), exit after table.
+# Herdr popup has stdin as pipe but /dev/tty available — keep interactive.
+if [ ! -t 0 ] && [ ! -c /dev/tty ]; then
 	exit 0
 fi
 
@@ -1251,9 +1255,16 @@ fi
 while true; do
 	printf '\nEnter input number 1-8 to pick, s Save+Apply, R Reset all, q Cancel, ? Help: ' >&2
 	# shellcheck disable=SC3045
-	if ! read -r _cmd; then
-		printf '\n' >&2
-		exit 0
+	if [ -c /dev/tty ]; then
+		if ! read -r _cmd </dev/tty; then
+			printf '\n' >&2
+			exit 0
+		fi
+	else
+		if ! read -r _cmd; then
+			printf '\n' >&2
+			exit 0
+		fi
 	fi
 	case "$_cmd" in
 	s|S)
