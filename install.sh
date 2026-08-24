@@ -18,15 +18,15 @@ VALID_ACTIONS="focus-left focus-right focus-up focus-down zoom-toggle next-tab p
 
 is_valid_input() {
 	case " $VALID_INPUTS " in
-		*" $1 "*) return 0 ;;
-		*) return 1 ;;
+	*" $1 "*) return 0 ;;
+	*) return 1 ;;
 	esac
 }
 
 is_valid_action() {
 	case " $VALID_ACTIONS " in
-		*" $1 "*) return 0 ;;
-		*) return 1 ;;
+	*" $1 "*) return 0 ;;
+	*) return 1 ;;
 	esac
 }
 
@@ -40,18 +40,18 @@ validate_keybinding_config() {
 		_line=$(printf '%s' "$_raw" | tr -d '\r')
 		_trimmed=$(printf '%s' "$_line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 		case "$_trimmed" in
-			""|\#*) continue ;;
+		"" | \#*) continue ;;
 		esac
 		case "$_trimmed" in
-			\[*\]*)
-				_sec=$(printf '%s' "$_trimmed" | sed 's/[[:space:]]*#.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-				if [ "$_sec" = "[keybindings]" ]; then
-					_in_section=1
-				else
-					_in_section=0
-				fi
-				continue
-				;;
+		\[*\]*)
+			_sec=$(printf '%s' "$_trimmed" | sed 's/[[:space:]]*#.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+			if [ "$_sec" = "[keybindings]" ]; then
+				_in_section=1
+			else
+				_in_section=0
+			fi
+			continue
+			;;
 		esac
 		if [ "$_in_section" -eq 0 ]; then
 			continue
@@ -59,11 +59,11 @@ validate_keybinding_config() {
 		_no_comment=$(printf '%s' "$_line" | sed 's/#.*//')
 		_stripped=$(printf '%s' "$_no_comment" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 		case "$_stripped" in
-			""|\#*) continue ;;
+		"" | \#*) continue ;;
 		esac
 		case "$_stripped" in
-			*"="*) ;;
-			*) continue ;;
+		*"="*) ;;
+		*) continue ;;
 		esac
 		_key=$(printf '%s' "$_stripped" | sed -E 's/^([^=]+)=.*/\1/' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 		_val_raw=$(printf '%s' "$_stripped" | sed -E 's/^[^=]*=[[:space:]]*//')
@@ -94,7 +94,7 @@ validate_keybinding_config() {
 			_v_status=1
 			continue
 		fi
-	done < "$KEYBINDING_CONFIG"
+	done <"$KEYBINDING_CONFIG"
 	if [ "$_v_status" -eq 1 ]; then
 		return 1
 	fi
@@ -114,18 +114,18 @@ _get_effective_action() {
 		_ge_line=$(printf '%s' "$_ge_raw" | tr -d '\r')
 		_ge_trim=$(printf '%s' "$_ge_line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 		case "$_ge_trim" in
-			""|\#*) continue ;;
+		"" | \#*) continue ;;
 		esac
 		case "$_ge_trim" in
-			\[*\]*)
-				_ge_sec=$(printf '%s' "$_ge_trim" | sed 's/[[:space:]]*#.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-				if [ "$_ge_sec" = "[keybindings]" ]; then
-					_ge_in_section=1
-				else
-					_ge_in_section=0
-				fi
-				continue
-				;;
+		\[*\]*)
+			_ge_sec=$(printf '%s' "$_ge_trim" | sed 's/[[:space:]]*#.*//' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+			if [ "$_ge_sec" = "[keybindings]" ]; then
+				_ge_in_section=1
+			else
+				_ge_in_section=0
+			fi
+			continue
+			;;
 		esac
 		if [ "$_ge_in_section" -eq 0 ]; then
 			continue
@@ -133,9 +133,9 @@ _get_effective_action() {
 		_ge_no_comment=$(printf '%s' "$_ge_line" | sed 's/#.*//')
 		_ge_stripped=$(printf '%s' "$_ge_no_comment" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 		case "$_ge_stripped" in
-			""|\#*) continue ;;
-			*"="*) ;;
-			*) continue ;;
+		"" | \#*) continue ;;
+		*"="*) ;;
+		*) continue ;;
 		esac
 		_ge_key=$(printf '%s' "$_ge_stripped" | sed -E 's/^([^=]+)=.*/\1/' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 		if [ "$_ge_key" != "$_ge_input" ]; then
@@ -154,7 +154,7 @@ _get_effective_action() {
 		if is_valid_input "$_ge_key" && [ -n "$_ge_val" ] && is_valid_action "$_ge_val"; then
 			_ge_found="$_ge_val"
 		fi
-	done < "$KEYBINDING_CONFIG"
+	done <"$KEYBINDING_CONFIG"
 	if [ -n "$_ge_found" ]; then
 		printf '%s' "$_ge_found"
 	else
@@ -164,12 +164,13 @@ _get_effective_action() {
 
 usage() {
 	cat <<'USAGE'
-Usage: ./install.sh --check | --apply [--device <key>] [--help]
+Usage: ./install.sh --check | --apply [--device <key>] | --tui [--help]
 
   --check    Verify OpenLogi per_app_bindings block; report symlink status informationally
              (symlink at ~/.local/bin/herdr-mouse is owned by the Bootstrap startup hook)
   --apply    Patch ~/.config/openlogi/config.toml with the overlay (backup, idempotent)
              --device <key>  Explicit device key when auto-detect is ambiguous
+  --tui      Launch interactive Keybinding picker (delegates to bin/herdr-mouse-tui)
   --help     Show this help
 
 Symlink is owned by the Bootstrap startup hook (scripts/bootstrap.sh);
@@ -286,7 +287,7 @@ do_apply() {
 		fi
 	else
 		printf 'No existing config at %s — creating new file\n' "$CONFIG"
-		: > "$backup" 2>/dev/null || true
+		: >"$backup" 2>/dev/null || true
 		if [ -f "$backup" ]; then
 			printf 'Backup created: %s (empty original)\n' "$backup"
 		fi
@@ -295,22 +296,22 @@ do_apply() {
 	# Build overlay temp file: header + body
 	tmp_overlay=$(mktemp 2>/dev/null || mktemp /tmp/herdr_overlay.XXXXXX)
 	tmp_new=$(mktemp 2>/dev/null || mktemp /tmp/herdr_new.XXXXXX)
-	printf '%s\n' "$header" > "$tmp_overlay"
-	get_overlay_body >> "$tmp_overlay"
+	printf '%s\n' "$header" >"$tmp_overlay"
+	get_overlay_body >>"$tmp_overlay"
 
 	if [ -f "$CONFIG" ]; then
 		# Idempotent insert-or-replace: replace existing block or append
 		found=0
 		in_target=0
 		need_append=1
-		: > "$tmp_new"
+		: >"$tmp_new"
 		while IFS= read -r line || [ -n "$line" ]; do
 			if [ "$line" = "$header" ]; then
 				if [ "$found" -eq 0 ]; then
 					found=1
 					need_append=0
 					in_target=1
-					cat "$tmp_overlay" >> "$tmp_new"
+					cat "$tmp_overlay" >>"$tmp_new"
 					continue
 				else
 					in_target=1
@@ -319,23 +320,23 @@ do_apply() {
 			fi
 			if [ "$in_target" -eq 1 ]; then
 				case "$line" in
-					\[*)
-						in_target=0
-						printf '%s\n' "$line" >> "$tmp_new"
-						;;
-					*)
-						continue
-						;;
+				\[*)
+					in_target=0
+					printf '%s\n' "$line" >>"$tmp_new"
+					;;
+				*)
+					continue
+					;;
 				esac
 			else
-				printf '%s\n' "$line" >> "$tmp_new"
+				printf '%s\n' "$line" >>"$tmp_new"
 			fi
-		done < "$CONFIG"
+		done <"$CONFIG"
 		if [ "$need_append" -eq 1 ]; then
 			if [ -s "$tmp_new" ]; then
-				printf '\n' >> "$tmp_new"
+				printf '\n' >>"$tmp_new"
 			fi
-			cat "$tmp_overlay" >> "$tmp_new"
+			cat "$tmp_overlay" >>"$tmp_new"
 		fi
 		if [ ! -s "$tmp_new" ]; then
 			printf 'Error: generated config is empty, aborting\n' >&2
@@ -344,7 +345,7 @@ do_apply() {
 		fi
 		# Atomic write via temp then move
 		tmp_write="${CONFIG}.tmp.$$"
-		if cat "$tmp_new" > "$tmp_write" 2>/dev/null; then
+		if cat "$tmp_new" >"$tmp_write" 2>/dev/null; then
 			mv -- "$tmp_write" "$CONFIG"
 		else
 			mv -- "$tmp_new" "$CONFIG"
@@ -352,7 +353,7 @@ do_apply() {
 		rm -f "$tmp_new" "$tmp_overlay" "$tmp_write" 2>/dev/null || true
 		printf 'Patched: %s with %s\n' "$CONFIG" "$header"
 	else
-		cat "$tmp_overlay" > "$CONFIG"
+		cat "$tmp_overlay" >"$CONFIG"
 		rm -f "$tmp_new" "$tmp_overlay" 2>/dev/null || true
 		printf 'Created: %s with %s\n' "$CONFIG" "$header"
 	fi
@@ -528,6 +529,10 @@ do_check() {
 case "${1:-}" in
 --check)
 	do_check
+	;;
+--tui)
+	shift
+	exec "$SCRIPT_DIR/bin/herdr-mouse-tui" "$@"
 	;;
 --apply)
 	shift

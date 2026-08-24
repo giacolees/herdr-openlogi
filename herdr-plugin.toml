@@ -67,5 +67,20 @@ title = "Previous workspace"
 description = "Cycle to the previous workspace"
 command = ["bin/herdr-mouse", "prev-workspace"]
 
+[[actions]]
+id = "configure"
+title = "Configure keybindings"
+description = "Open keybinding picker"
+command = ["bin/herdr-mouse-tui"]
+
+[[panes]]
+id = "configure"
+title = "Configure keybindings"
+description = "Open keybinding picker (80% popup)"
+placement = "popup"
+width = "80%"
+height = "80%"
+command = ["bin/herdr-mouse-tui"]
+
 [[startup]]
 command = ["scripts/bootstrap.sh"]

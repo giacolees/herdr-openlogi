@@ -51,9 +51,19 @@ setup() {
   [ -x "$REPO_ROOT/scripts/bootstrap.sh" ]
 }
 
-@test "manifest declares nine [[actions]]" {
+@test "manifest declares ten [[actions]] (nine Dispatcher + configure)" {
   count="$(grep -c '^\[\[actions\]\]' "$MANIFEST" || true)"
-  [ "$count" -eq 9 ]
+  [ "$count" -eq 10 ]
+}
+
+@test "manifest declares configure action and pane (popup 80%)" {
+  grep -Eq '^[[:space:]]*id[[:space:]]*=[[:space:]]*"configure"' "$MANIFEST"
+  grep -Fq 'bin/herdr-mouse-tui' "$MANIFEST"
+  grep -Fq 'placement = "popup"' "$MANIFEST"
+  grep -Fq 'width = "80%"' "$MANIFEST"
+  grep -Fq 'height = "80%"' "$MANIFEST"
+  # no default keys.command shipped
+  ! grep -Eq '^[[:space:]]*\[\[keys\.command\]\]' "$MANIFEST"
 }
 
 @test "manifest declares all nine Dispatcher subcommands" {
@@ -62,14 +72,13 @@ setup() {
   done
 }
 
-@test "every action command starts with bin/herdr-mouse" {
-  # Count action commands vs those containing bin/herdr-mouse as first argv.
-  # Total command lines is actions (9) + startup (1) = 10.
+@test "every action/pane command starts with bin/herdr-mouse" {
+  # Total: 10 actions + 1 pane + 1 startup = 12; all bin/herdr-mouse* + 1 bootstrap
   total="$(grep -c '^[[:space:]]*command[[:space:]]*=' "$MANIFEST" || true)"
-  ok="$(grep -c 'command[[:space:]]*=[[:space:]]*\["bin/herdr-mouse"' "$MANIFEST" || true)"
+  ok="$(grep -c 'command[[:space:]]*=[[:space:]]*\["bin/herdr-mouse' "$MANIFEST" || true)"
   startup="$(grep -c 'command[[:space:]]*=[[:space:]]*\["scripts/bootstrap.sh"' "$MANIFEST" || true)"
-  [ "$total" -eq 10 ]
-  [ "$ok" -eq 9 ]
+  [ "$total" -eq 12 ]
+  [ "$ok" -eq 11 ]
   [ "$startup" -eq 1 ]
 }
 
