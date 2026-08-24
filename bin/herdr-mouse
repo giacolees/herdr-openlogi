@@ -1,6 +1,6 @@
 #!/bin/sh
 # herdr-mouse — dispatcher for OpenLogi → herdr mouse bindings
-# POSIX sh only. One binary, seven subcommands. Every branch is a silent
+# POSIX sh only. One binary, nine subcommands. Every branch is a silent
 # no-op (exit 0, no output) if herdr is unreachable, jq is missing, or the
 # requested move is impossible. Called via RunShellCommand from the
 # per_app_bindings overlay; the GUI PATH is minimal so we resolve absolute
