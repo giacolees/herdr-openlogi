@@ -22,7 +22,7 @@ setup() {
 }
 
 @test "manifest has required top-level key: version" {
-  grep -Eq '^[[:space:]]*version[[:space:]]*=[[:space:]]*"0\.2\.0"' "$MANIFEST"
+  grep -Eq '^[[:space:]]*version[[:space:]]*=[[:space:]]*"[0-9]+\.[0-9]+\.[0-9]+"' "$MANIFEST"
 }
 
 @test "manifest has required top-level key: min_herdr_version" {
