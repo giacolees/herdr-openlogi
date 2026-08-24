@@ -12,8 +12,14 @@
 set -eu
 
 # --- absolute bin resolution (GUI-PATH safe) ---
-# Respect HERDR_BIN/JQ_BIN overrides for testability (ISC-2); otherwise probe
-# well-known absolute locations before falling back to PATH.
+# Prefer HERDR_BIN_PATH when set (herdr plugin runtime env, ISC-5);
+# otherwise respect HERDR_BIN/JQ_BIN overrides for testability (ISC-2) and
+# probe well-known absolute locations. When HERDR_BIN_PATH is unset the
+# existing chain is byte-identical to today (OpenLogi direct-dispatch
+# path unaffected).
+if [ -n "${HERDR_BIN_PATH:-}" ]; then
+  HERDR_BIN="${HERDR_BIN_PATH}"
+fi
 if [ -z "${HERDR_BIN:-}" ]; then
   for _c in "$HOME/.local/bin/herdr" /opt/homebrew/bin/herdr /usr/local/bin/herdr; do
     if [ -x "$_c" ]; then
