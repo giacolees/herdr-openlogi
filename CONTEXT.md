@@ -9,7 +9,7 @@ OpenLogi's per-application sparse action map (`per_app_bindings."com.mitchellh.g
 _Avoid_: per-app bindings block, overlay config
 
 **Dispatcher**:
-The single POSIX `sh` executable (`bin/herdr-mouse`) that translates each mouse input into a herdr socket-API call; one artifact, seven subcommands.
+The single POSIX `sh` executable (`bin/herdr-mouse`) that translates each mouse input into a herdr socket-API call; one artifact, nine subcommands.
 _Avoid_: action script, handler, driver
 
 **Silent no-op**:
@@ -35,3 +35,11 @@ _Avoid_: pane zoom, maximize
 **Canonization**:
 Promoting the ad-hoc deployed setup (hand-edited TOML, legacy scripts) into this versioned repo as source of truth.
 _Avoid_: migration, formalization
+
+**Plugin manifest**:
+The root `herdr-plugin.toml` declaring package metadata and one plugin action per Dispatcher subcommand; what makes the repo `herdr plugin install`able and marketplace-listable.
+_Avoid_: package config, plugin spec
+
+**Bootstrap**:
+The plugin startup hook that idempotently points the Binding overlay's command path at the installed plugin checkout, so a pure plugin install self-deploys.
+_Avoid_: installer, deploy script

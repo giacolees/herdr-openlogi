@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-24
+
+### Added
+
+- herdr plugin manifest (`herdr-plugin.toml`) making the repo installable via
+  `herdr plugin install giacolees/herdr-openlogi` and listable on
+  <https://herdr.dev/plugins/> (requires `herdr >= 0.7.0`, `platforms = ["macos", "linux"]`).
+  Declares nine `[[actions]]` — one per Dispatcher subcommand
+  (`focus-left`, `focus-right`, `focus-up`, `focus-down`, `zoom-toggle`,
+  `next-tab`, `prev-tab`, `next-workspace`, `prev-workspace`) — each as an
+  argv array starting with `bin/herdr-mouse`.
+- Bootstrap startup hook (`scripts/bootstrap.sh` via `[[startup]]`) that
+  idempotently symlinks `~/.local/bin/herdr-mouse → $HERDR_PLUGIN_ROOT/bin/herdr-mouse`
+  once after session restore; re-run retargets a stale symlink, missing
+  `HERDR_PLUGIN_ROOT` or target is a silent no-op.
+- Marketplace discoverability: owner adds the `herdr-plugin` GitHub topic to
+  `giacolees/herdr-openlogi` at release (index refresh ≤ 30 min).
+
+### Changed
+
+- Dispatcher (`bin/herdr-mouse`) now prefers `HERDR_BIN_PATH` when set (herdr
+  plugin runtime env) before the existing absolute-path probe chain; unset
+  behaviour is byte-identical to the direct OpenLogi dispatch path.
+- `install.sh` no longer creates or removes the `~/.local/bin/herdr-mouse`
+  symlink — ownership moved to the Bootstrap startup hook. `--check` now
+  reports symlink status informationally only; `--apply` still patches the
+  OpenLogi overlay as before.
+- Docs: reconciled prose drift — seven → nine Dispatcher subcommands
+  (enumerated from the `case "$cmd"` block in `bin/herdr-mouse`).
+
 ## [0.1.1] - 2026-08-23
 
 ### Fixed
