@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-24
+
+### Added
+
+- Custom Keybinding config (`~/.config/openlogi-herdr/config.toml` `[keybindings]` table) that overrides baked-in defaults to derive the Binding overlay; example template at `openlogi/herdr-mouse.example.toml`. Full replacement is not required — a single-line override merges with defaults.
+- POSIX `sh` Keybinding parse/merge/generate in `install.sh` — `--apply` derives the `per_app_bindings."com.mitchellh.ghostty"` block from Keybindings, `--check` validates every input/action (unknown input/action FAILs with `Valid inputs`/`Valid actions` and `Fix:` hint) and reports `INFO: using Keybinding config` when the file is present; optional `GestureUp`/`GestureDown` inputs are emitted only when set.
+- Bootstrap now mirrors the same Keybinding generation (lenient POSIX fallback) so `auto-apply` honors custom mappings; strips legacy dotted `per_app_bindings` subtables before apply to keep the overlay idempotent.
+- Interactive Keybinding picker TUI (`bin/herdr-mouse-tui`, short alias `bin/mouse-config`) — POSIX `sh` with `fzf` selection and `select`-loop fallback; validation blocking, reset-all confirm, dirty/reload prompts, tty-aware reads for herdr popup and robust OpenLogi reload; atomic save/apply with `.bak.*` backup and idempotent overlay (`ISC-4`, `ISC-5`).
+- herdr plugin entries: `configure` action and `configure-picker` popup pane (80% popup via `sh -c 'exec "$HERDR_PLUGIN_ROOT/bin/herdr-mouse-tui"'`) plus `install.sh --tui` wrapper and `herdr plugin action`/`pane` entry points; no default keybinding shipped (README documents a `prefix+alt+m` recipe).
+
+### Fixed
+
+- Deduplicated pane id and removed silent device-default fallback when multiple devices are present (now FAILs with hint).
+- TUI tty-aware reads fix for herdr popup and robust OpenLogi `killall`/`open -a` reload.
+- CI: `shellcheck` SC2015 fix in TUI and expanded `shellcheck`/`sh -n` coverage to `bin/herdr-mouse-tui` / `bin/mouse-config`.
+
 ## [0.2.1] - 2026-08-24
 
 ### Fixed
