@@ -38,58 +38,74 @@ This repo is the versioned source of truth for the dispatcher script, its symlin
 
 ## Install
 
-### Recommended: herdr plugin (lean)
+### Recommended — lean (automatic)
+
+Three commands. The plugin handles the symlink *and* the OpenLogi overlay for you.
+
+**1. Install the plugin**
 
 ```sh
-herdr plugin install giacolees/herdr-openlogi --yes  # interactive: omit --yes (herdr 0.8.2: --yes must follow the repo)
+herdr plugin install giacolees/herdr-openlogi --yes
+# interactive terminals: omit --yes to see the preview first
+# herdr 0.8.2 note: --yes must come *after* the repo
+```
+
+herdr validates `herdr-plugin.toml`, registers nine actions, and enables the Bootstrap hook (`scripts/bootstrap.sh`).
+
+**2. Enable automatic overlay patching**
+
+```sh
 touch "$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply"
 herdr server stop; herdr plugin list >/dev/null
+```
+
+What this does on every herdr session restore:
+
+- Creates `~/.local/bin/herdr-mouse → $HERDR_PLUGIN_ROOT/bin/herdr-mouse` (idempotent)
+- Patches `~/.config/openlogi/config.toml` with the `per_app_bindings."com.mitchellh.ghostty"` block (idempotent, backup `config.toml.bak.*`)
+- Re-targets both automatically on plugin update
+
+> **⚠️ Heads-up:** `~/.config/openlogi/config.toml` is owned by OpenLogi. Enabling `auto-apply` means the plugin will edit it on every herdr restart until you `rm "$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply"`. A backup is made each time, but OpenLogi updates can still overwrite the block (Bootstrap will re-apply on the next restart). If you prefer to own that file yourself, skip this step and use the manual method below.
+
+> **Ambiguous device?** If `selected_device` isn't set or you have multiple mice, write the key into the flag file instead of leaving it empty:
+> ```sh
+> echo "direct:046d:b034:serial:YOURS" > "$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply"
+> # find yours with: grep selected_device ~/.config/openlogi/config.toml
+> ```
+
+**3. Restart OpenLogi**
+
+```sh
 killall OpenLogi; open -a OpenLogi
 ```
 
-> **⚠️ Overwrite warning:** the `touch …/auto-apply` opts Bootstrap into **automatically patching** `~/.config/openlogi/config.toml` on every herdr session restore until you `rm` the flag file. A timestamped backup (`config.toml.bak.*`) is created before each write and the patch is idempotent, but **`config.toml` is owned by OpenLogi** — OpenLogi updates can overwrite it (and Bootstrap will re-apply on the next restart, creating another backup). Only use lean mode if you're comfortable with the plugin owning that block. To stay manual, skip the `touch` and add the overlay by hand (next section).
+Focus Ghostty and try the buttons.
 
-This is the primary install path. herdr validates the Plugin manifest (`herdr-plugin.toml`), registers nine actions (one per Dispatcher subcommand), and runs the Bootstrap startup hook once after session restore.
-
-The Bootstrap hook (`scripts/bootstrap.sh` via `[[startup]]` in `herdr-plugin.toml`) does two things on restore:
-
-1. Idempotently creates the symlink the Binding overlay calls: `~/.local/bin/herdr-mouse → $HERDR_PLUGIN_ROOT/bin/herdr-mouse`
-2. **If** `$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply` exists, idempotently patches the `per_app_bindings."com.mitchellh.ghostty"` block in `~/.config/openlogi/config.toml` (backup, same logic as `install.sh --apply`). Write a device key into the flag file (`echo "direct:…" > …/auto-apply`) if auto-detect is ambiguous.
-
-Re-installing or updating the plugin retargets the symlink (and re-patches the overlay if opted in) automatically. No manual `install.sh` step is needed.
-
-Verify the deployment:
+**Verify**
 
 ```sh
-herdr plugin action list --plugin openlogi.herdr-mouse  # lists the nine actions
-~/.local/bin/herdr-mouse focus-right  # should exit 0, no output if herdr is not running
-./install.sh --check                # overlay + symlink health (symlink owned by Bootstrap)
+herdr plugin action list --plugin openlogi.herdr-mouse  # 9 actions
+~/.local/bin/herdr-mouse focus-right; echo $?            # 0, silent no-op if no neighbor
+./install.sh --check  # if you cloned the repo; also works via managed checkout:
+# ~/.config/herdr/plugins/github/openlogi.herdr-mouse-*/install.sh --check
 ```
 
-> **Marketplace:** the plugin is listable on <https://herdr.dev/plugins/> once the repository owner adds the `herdr-plugin` GitHub topic to `giacolees/herdr-openlogi` at release (index refresh ≤ 30 min).
+> **Marketplace:** listable on <https://herdr.dev/plugins/> once the owner adds the `herdr-plugin` topic to `giacolees/herdr-openlogi` (index refresh ≤ 30 min).
 
-You still need the OpenLogi Binding overlay once (next section) — lean mode above handles it automatically; otherwise add it by hand.
+---
 
-### Add the OpenLogi binding overlay
+### Alternative — manual (you own `config.toml`)
 
-OpenLogi's per-app overlay lives in `~/.config/openlogi/config.toml` under a device-keyed table. With lean mode (flag file present) Bootstrap patches it for you. Otherwise, add it by hand — neither `herdr plugin install` (without the flag) nor `install.sh` edits this file without `--apply`.
+Skip the `touch …/auto-apply` line above and add the overlay by hand. Neither `herdr plugin install` (without the flag) nor `install.sh` will edit `config.toml` without `--apply`.
 
-**a. Find your device key:**
+**a. Find your device key**
 
 ```sh
 grep selected_device ~/.config/openlogi/config.toml
 # e.g. selected_device = "direct:046d:b034:serial:2419lz522j28"
 ```
 
-The device key is that quoted string (the part after `selected_device =`).
-
-**b. Open the config:**
-
-```sh
-open ~/.config/openlogi/config.toml   # or $EDITOR ~/.config/openlogi/config.toml
-```
-
-**c. Paste the overlay block** under that device. The canonical snippet is in [`openlogi/per-app-bindings.toml`](openlogi/per-app-bindings.toml) — copy it verbatim:
+**b. Paste the overlay** into `~/.config/openlogi/config.toml` under that device. Canonical snippet: [`openlogi/per-app-bindings.toml`](openlogi/per-app-bindings.toml) — copy verbatim:
 
 ```toml
 [devices."direct:046d:b034:serial:2419lz522j28".per_app_bindings."com.mitchellh.ghostty"]
@@ -105,53 +121,33 @@ ThumbwheelScrollDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse next-wo
 # GestureDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-down" }
 ```
 
-**Important:** replace `direct:046d:b034:serial:2419lz522j28` in the header with your own device key from step (a), but leave the four `RunShellCommand` lines exactly as shown (with a space between `herdr-mouse` and the subcommand — the legacy slash form `herdr-mouse/focus-left` will be flagged as wrong). The literal string `$HOME` is intentional — OpenLogi expands it; do not substitute your home path.
+Replace the header's device key with yours from (a); keep the `RunShellCommand` lines exactly as shown (space between `herdr-mouse` and the action — the old `herdr-mouse/focus-left` form is wrong). `$HOME` stays literal — OpenLogi expands it.
 
-> The commented `GestureUp`/`GestureDown` lines are optional. Uncomment them only if your device exposes gesture-pad directions and you want vertical pane focus.
+> `GestureUp`/`GestureDown` are optional — uncomment only if your device exposes the gesture pad.
 
-#### Automated alternative (opt-in)
-
-Manual paste is the default (safer — never auto-edits `config.toml`). If you prefer automation, use the opt-in helper:
+Or automate the paste (still manual opt-in):
 
 ```sh
-./install.sh --apply            # auto-detects selected_device, writes backup, then runs --check
-./install.sh --apply --device "direct:046d:b034:serial:YOURS"  # explicit device when ambiguous
+./install.sh --apply                          # auto-detects selected_device, backup, then --check
+./install.sh --apply --device "direct:…:YOURS"  # explicit device
 ```
 
-`--apply` creates a timestamped backup (`config.toml.bak.<timestamp>`), is idempotent, and ends with `install.sh --check` so you get immediate feedback. Re-run anytime to re-apply after an OpenLogi overwrite — the source of truth stays in `openlogi/per-app-bindings.toml`.
+Then restart OpenLogi as above and run `./install.sh --check` — it validates the symlink *and* the overlay, prints `OK`/`FAIL` per check, and on `FAIL` shows the exact TOML to paste.
 
-### Verify
+---
 
-```sh
-./install.sh --check
-```
+### No-plugin fallback (clone only)
 
-This validates both the symlink deployment and the `per_app_bindings."com.mitchellh.ghostty"` block. On success:
-
-```
-OK: symlink /Users/you/.local/bin/herdr-mouse -> /path/to/repo/bin/herdr-mouse
-OK: OpenLogi config /Users/you/.config/openlogi/config.toml contains per_app_bindings."com.mitchellh.ghostty" with required bindings
-All checks passed.
-```
-
-If anything is wrong it exits nonzero and prints the exact TOML to paste plus a `Fix:` hint. See [Troubleshooting](#troubleshooting) below.
-
-### Restart OpenLogi
-
-After editing `config.toml`, restart OpenLogi (quit from the menu bar or `killall OpenLogi` and relaunch) so it picks up the new overlay. Then focus Ghostty and try the buttons — they should drive herdr immediately.
-
-### Alternative: manual install (no plugin, no symlink deploy)
-
-If you don't use `herdr plugin install`, clone the repo and use `install.sh` only for overlay verification:
+If you don't use `herdr plugin install` at all:
 
 ```sh
 git clone https://github.com/giacolees/herdr-openlogi.git
 cd herdr-openlogi
-./install.sh --check   # reports symlink status informationally; does not create it
-./install.sh --apply   # optional: auto-patch the overlay (backup, idempotent)
+./install.sh --check   # informational only; does not create the symlink
+./install.sh --apply   # patch the overlay (backup, idempotent)
 ```
 
-Symlink deployment has moved to the Bootstrap startup hook (`scripts/bootstrap.sh` via `[[startup]]` in `herdr-plugin.toml`). `install.sh` no longer creates or removes `~/.local/bin/herdr-mouse` — `--check` only reports whether the symlink exists and where it points. Clicks before the first herdr session start (before Bootstrap has run) are a Silent no-op until herdr restores the session and Bootstrap creates the symlink.
+The symlink is still owned by Bootstrap — it will only exist after herdr has started once. Until then clicks are a Silent no-op.
 
 ---
 
