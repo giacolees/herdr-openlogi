@@ -21,6 +21,9 @@ setup() {
   unset MOCK_HERDR_FAIL MOCK_JQ_FAIL MOCK_FOCUS_CHANGED MOCK_TAB_MODE MOCK_WS_MODE
   unset HERDR_MOUSE_DEBUG
   unset HERDR_MOUSE_THROTTLE_FILE
+  # ISC-5: ensure OpenLogi direct-dispatch path (HERDR_BIN_PATH unset) by default;
+  # tests that verify HERDR_BIN_PATH precedence set it explicitly.
+  unset HERDR_BIN_PATH
 }
 
 teardown() {
@@ -293,4 +296,64 @@ teardown() {
   [ "$status" -eq 0 ]
   count=$(grep -c "workspace focus" "$MOCK_LOG" 2>/dev/null || echo 0)
   [ "$count" -eq 1 ]
+}
+
+# --- ISC-5: HERDR_BIN_PATH probe priority ---
+
+@test "HERDR_BIN_PATH takes precedence over HERDR_BIN" {
+  alt_log="$TMPDIR/alt-herdr.log"
+  cat > "$TMPDIR/herdr-alt" <<'EOS'
+#!/bin/sh
+# alt mock: logs to ALT_LOG so we can distinguish which binary was invoked
+if [ -n "${ALT_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$ALT_LOG" 2>/dev/null || true
+fi
+printf '{"result":{"focus":{"changed":true,"focused_pane_id":"pane-alt"}}}\n'
+EOS
+  chmod +x "$TMPDIR/herdr-alt"
+  : > "$MOCK_LOG"
+  : > "$alt_log"
+  run env HERDR_BIN="$HERDR_BIN" HERDR_BIN_PATH="$TMPDIR/herdr-alt" JQ_BIN="$JQ_BIN" MOCK_LOG="$MOCK_LOG" ALT_LOG="$alt_log" "$BATS_TEST_DIRNAME/../bin/herdr-mouse" focus-left
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -q "pane focus --direction left" "$alt_log"
+  # HERDR_BIN (mock-herdr) must not have been invoked
+  if [ -s "$MOCK_LOG" ]; then
+    echo "expected HERDR_BIN to be ignored but MOCK_LOG was: $(cat "$MOCK_LOG")" >&2
+    false
+  fi
+}
+
+@test "HERDR_BIN_PATH wins over probe chain even when HERDR_BIN is unset" {
+  alt_log="$TMPDIR/alt-herdr2.log"
+  cat > "$TMPDIR/herdr-alt2" <<'EOS'
+#!/bin/sh
+if [ -n "${ALT_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$ALT_LOG" 2>/dev/null || true
+fi
+printf '{"result":{"focus":{"changed":true,"focused_pane_id":"pane-alt2"}}}\n'
+EOS
+  chmod +x "$TMPDIR/herdr-alt2"
+  : > "$alt_log"
+  # No HERDR_BIN set; only HERDR_BIN_PATH should be used (probe chain bypassed)
+  run env -u HERDR_BIN HERDR_BIN_PATH="$TMPDIR/herdr-alt2" JQ_BIN="$JQ_BIN" ALT_LOG="$alt_log" "$BATS_TEST_DIRNAME/../bin/herdr-mouse" focus-right
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -q "pane focus --direction right" "$alt_log"
+}
+
+@test "HERDR_BIN_PATH unset falls back to HERDR_BIN (existing chain)" {
+  : > "$MOCK_LOG"
+  run env -u HERDR_BIN_PATH HERDR_BIN="$HERDR_BIN" JQ_BIN="$JQ_BIN" MOCK_LOG="$MOCK_LOG" "$BATS_TEST_DIRNAME/../bin/herdr-mouse" focus-left
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -q "pane focus --direction left" "$MOCK_LOG"
+}
+
+@test "empty HERDR_BIN_PATH falls back to HERDR_BIN" {
+  : > "$MOCK_LOG"
+  run env HERDR_BIN="$HERDR_BIN" HERDR_BIN_PATH="" JQ_BIN="$JQ_BIN" MOCK_LOG="$MOCK_LOG" "$BATS_TEST_DIRNAME/../bin/herdr-mouse" focus-left
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+  grep -q "pane focus --direction left" "$MOCK_LOG"
 }
