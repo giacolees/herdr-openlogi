@@ -225,8 +225,9 @@ Prefer an interactive UI over hand-editing TOML? The `Keybinding picker` (`bin/h
 
 **Entry points**
 
+- **Easiest:** `bin/mouse-config` — tries Herdr 80% popup first, falls back to terminal TUI (`./install.sh --tui`) when Herdr isn’t running. Also `herdr plugin pane open --plugin openlogi.herdr-mouse --entrypoint configure-picker` for the raw Herdr command.
 - Manual / clone installs: `./install.sh --tui` (thin wrapper → `bin/herdr-mouse-tui`; try `./install.sh --tui --help` and `--dry-run`)
-- herdr installs: `herdr plugin action invoke openlogi.herdr-mouse configure` — also visible via `herdr plugin action list --plugin openlogi.herdr-mouse` as a `popup` (80% × 80%)
+- Herdr installs: popup via `bin/mouse-config` or `herdr plugin pane open --entrypoint configure-picker` (visible via `herdr plugin pane list`); the `configure` **action** (`herdr plugin action invoke configure --plugin openlogi.herdr-mouse`) is headless and not for the TUI — use the pane instead
 
 **What you see**
 
@@ -247,12 +248,15 @@ Prefer an interactive UI over hand-editing TOML? The `Keybinding picker` (`bin/h
 **Optional keybinding for the picker** (no default shipped — add to your herdr config if you want it, e.g. `~/.config/herdr/config.toml`):
 
 ```toml
+# Herdr popup (recommended)
 [[keys.command]]
 key = "prefix+alt+m"
-command = "herdr plugin action invoke openlogi.herdr-mouse configure"
+command = "herdr plugin pane open --plugin openlogi.herdr-mouse --entrypoint configure-picker"
+# Or shell alias for the short wrapper:
+# alias mcfg='bin/mouse-config'   # 15 chars, tries popup then falls back to terminal
 ```
 
-Notes: `bin/herdr-mouse-tui --help` documents all flags; `--dry-run` prints the 8-row table without interactivity (useful for tests); `install.sh --tui` delegates to `bin/herdr-mouse-tui` with the same flags.
+Notes: `bin/herdr-mouse-tui --help` documents all flags; `--dry-run` prints the 8-row table without interactivity (useful for tests); `bin/mouse-config` and `install.sh --tui` both delegate to `bin/herdr-mouse-tui` with the same flags.
 
 ---
 
