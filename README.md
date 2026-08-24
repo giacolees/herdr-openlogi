@@ -41,7 +41,8 @@ This repo is the versioned source of truth for the dispatcher script, its symlin
 ### Recommended: herdr plugin
 
 ```sh
-herdr plugin install giacolees/herdr-openlogi
+herdr plugin install giacolees/herdr-openlogi      # interactive — shows preview, confirm
+herdr plugin install giacolees/herdr-openlogi --yes # non-interactive / scripting (herdr 0.8.2: --yes must follow the repo)
 ```
 
 This is the primary install path. herdr validates the Plugin manifest (`herdr-plugin.toml`), registers nine actions (one per Dispatcher subcommand), and runs the Bootstrap startup hook once after session restore.
@@ -53,6 +54,13 @@ The Bootstrap hook (`scripts/bootstrap.sh` via `[[startup]]` in `herdr-plugin.to
 ```
 
 Re-installing or updating the plugin retargets the symlink automatically. No manual `install.sh` step is needed for the symlink.
+
+> **Note:** the symlink is created by the Bootstrap startup hook on the *next* herdr session restore. After a fresh `install`, either restart herdr (`herdr server stop` + next `herdr …` command) or simulate it once:
+> ```sh
+> HERDR_PLUGIN_ROOT=~/.config/herdr/plugins/github/openlogi.herdr-mouse-*/ \
+>   ~/.config/herdr/plugins/github/openlogi.herdr-mouse-*/scripts/bootstrap.sh
+> ls -l ~/.local/bin/herdr-mouse
+> ```
 
 Verify the deployment:
 
