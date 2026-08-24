@@ -62,6 +62,14 @@ Re-installing or updating the plugin retargets the symlink automatically. No man
 > ls -l ~/.local/bin/herdr-mouse
 > ```
 
+> **Lean opt-in:** to have Bootstrap also patch the overlay automatically (no manual paste), enable it once:
+> ```sh
+> touch "$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply"
+> # optional: echo "direct:046d:b034:serial:YOURS" > "$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply"
+> herdr server stop; herdr plugin list >/dev/null  # next restore patches ~/.config/openlogi/config.toml (backup, idempotent)
+> ```
+> Default remains manual — auto-patch only runs when that flag file exists — so OpenLogi's ownership of `config.toml` is still respected until you opt in.
+
 Verify the deployment:
 
 ```sh
@@ -72,7 +80,7 @@ herdr plugin action list --plugin openlogi.herdr-mouse  # lists the nine actions
 
 > **Marketplace:** the plugin is listable on <https://herdr.dev/plugins/> once the repository owner adds the `herdr-plugin` GitHub topic to `giacolees/herdr-openlogi` at release (index refresh ≤ 30 min).
 
-You still need to add the OpenLogi Binding overlay once (next section) — the plugin does not auto-edit OpenLogi's app-managed config.
+You still need the OpenLogi Binding overlay once (next section). By default the plugin does **not** auto-edit OpenLogi's app-managed config — enable the lean opt-in above if you want Bootstrap to patch it for you.
 
 ### Add the OpenLogi binding overlay
 
