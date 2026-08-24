@@ -50,7 +50,7 @@ jobs:
           echo "notes_file=/tmp/notes.md" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@a06a81a03ee405aabf0c9af58d68e85d3a08d93 # v2.3.3
+        uses: softprops/action-gh-release@v2
         with:
           body_path: /tmp/notes.md
           generate_release_notes: true
