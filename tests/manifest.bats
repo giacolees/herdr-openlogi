@@ -78,21 +78,31 @@ setup() {
 }
 
 @test "every action/pane command starts with bin/herdr-mouse" {
-  # Total: 10 actions + 1 pane + 1 startup = 12; all bin/herdr-mouse* + 1 bootstrap
+  # Total: 10 actions + 1 pane + 1 startup = 12; 10 actions are bin/herdr-mouse*, pane wraps via sh -c with HERDR_PLUGIN_ROOT
   total="$(grep -c '^[[:space:]]*command[[:space:]]*=' "$MANIFEST" || true)"
   ok="$(grep -c 'command[[:space:]]*=[[:space:]]*\["bin/herdr-mouse' "$MANIFEST" || true)"
+  pane_sh="$(grep -c 'command[[:space:]]*=[[:space:]]*\["sh"' "$MANIFEST" || true)"
   startup="$(grep -c 'command[[:space:]]*=[[:space:]]*\["scripts/bootstrap.sh"' "$MANIFEST" || true)"
   [ "$total" -eq 12 ]
-  [ "$ok" -eq 11 ]
+  [ "$ok" -eq 10 ]
+  [ "$pane_sh" -eq 1 ]
   [ "$startup" -eq 1 ]
+  # pane sh wrapper must still reference bin/herdr-mouse-tui via HERDR_PLUGIN_ROOT
+  grep -Fq 'HERDR_PLUGIN_ROOT/bin/herdr-mouse-tui' "$MANIFEST"
 }
 
 @test "every action argv[0] resolves to an executable inside the repo" {
   # Extract first argv element from each command line and verify it is executable.
+  # Pane uses sh wrapper with HERDR_PLUGIN_ROOT, so allow sh as argv0 and verify the embedded path.
   while IFS= read -r line; do
     # Pull first quoted string inside the array brackets.
     argv0="$(printf '%s\n' "$line" | sed -n 's/.*\[\s*"\([^"]*\)".*/\1/p')"
     [ -n "$argv0" ]
+    if [ "$argv0" = "sh" ]; then
+      # sh wrapper must embed HERDR_PLUGIN_ROOT/bin/herdr-mouse-tui
+      echo "$line" | grep -Fq 'HERDR_PLUGIN_ROOT/bin/herdr-mouse-tui' || { echo "sh wrapper missing HERDR_PLUGIN_ROOT path: $line" >&2; false; }
+      continue
+    fi
     # Must be a repo-relative path.
     case "$argv0" in
       /*) echo "argv[0] must be repo-relative, got: $argv0" >&2; false ;;

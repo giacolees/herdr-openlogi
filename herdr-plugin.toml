@@ -80,7 +80,7 @@ description = "Open keybinding picker (80% popup)"
 placement = "popup"
 width = "80%"
 height = "80%"
-command = ["bin/herdr-mouse-tui"]
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/herdr-mouse-tui\""]
 
 [[startup]]
 command = ["scripts/bootstrap.sh"]
