@@ -1,0 +1,40 @@
+# herdr-mouse Keybinding config — example template
+#
+# Copy to ~/.config/openlogi-herdr/config.toml and edit.
+#   mkdir -p ~/.config/openlogi-herdr
+#   cp openlogi/herdr-mouse.example.toml ~/.config/openlogi-herdr/config.toml
+#   $EDITOR ~/.config/openlogi-herdr/config.toml
+#
+# Then apply: ./install.sh --apply && killall OpenLogi; open -a OpenLogi
+# Validate:   ./install.sh --check
+#
+# Each Keybinding maps an OpenLogi input to a Dispatcher action.
+# Missing keys fall back to the baked-in defaults in openlogi/per-app-bindings.toml.
+# Delete the file (or a single line) to revert that key to its default.
+
+# Valid inputs (8):
+#   Back, Forward, GestureButton, DpiToggle,
+#   ThumbwheelScrollUp, ThumbwheelScrollDown,
+#   GestureUp, GestureDown  (last two optional — only emitted when set)
+#
+# Valid actions (9 Dispatcher ids):
+#   focus-left, focus-right, focus-up, focus-down,
+#   zoom-toggle, next-tab, prev-tab, next-workspace, prev-workspace
+
+[keybindings]
+
+# Defaults — uncomment and change one line to override, e.g. Back = "zoom-toggle"
+# Back = "focus-left"
+# Forward = "focus-right"
+# GestureButton = "zoom-toggle"
+# DpiToggle = "next-tab"
+# ThumbwheelScrollUp = "prev-workspace"
+# ThumbwheelScrollDown = "next-workspace"
+
+# Optional gesture-pad directions — only written to the Binding overlay when set
+# GestureUp = "focus-up"
+# GestureDown = "focus-down"
+
+# Examples:
+# Back = "zoom-toggle"
+# GestureUp = "focus-up"
