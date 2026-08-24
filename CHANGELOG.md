@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-24
+
+### Fixed
+
+- CI smoke now matches Bootstrap-owned symlink contract (bare `install.sh` shows usage, `--check` reports `INFO: symlink`) and covers `scripts/bootstrap.sh`.
+
+### Added
+
+- Release workflow (`.github/workflows/release.yml`) on `v*` tags: validates, extracts changelog, creates GitHub Release.
+- Bootstrap opt-in overlay auto-patch via `$(herdr plugin config-dir openlogi.herdr-mouse)/auto-apply` flag (lean install).
+
+### Changed
+
+- Install docs: lean automatic path is now Recommended with overwrite warning; manual remains as alternative.
+
 ## [0.2.0] - 2026-08-24
 
 ### Added
