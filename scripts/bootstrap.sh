@@ -72,27 +72,115 @@ fi
 
 # Paths for overlay patch
 openlogi_config="${HOME}/.config/openlogi/config.toml"
-ref_snippet="${HERDR_PLUGIN_ROOT}/openlogi/per-app-bindings.toml"
 
 # Helpers (duplicated from install.sh, kept self-contained for the managed checkout)
-_bootstrap_get_overlay_body() {
-	if [ -f "$ref_snippet" ] && grep -q '^Back = ' "$ref_snippet" 2>/dev/null; then
-		sed -n '/^Back = /,$ p' "$ref_snippet" 2>/dev/null || cat "$ref_snippet" 2>/dev/null || true
-	elif [ -f "$ref_snippet" ]; then
-		cat "$ref_snippet" 2>/dev/null || true
-	else
-		cat <<'TOML'
-Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-left" }
-Forward = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-right" }
-GestureButton = { RunShellCommand = "$HOME/.local/bin/herdr-mouse zoom-toggle" }
-DpiToggle = { RunShellCommand = "$HOME/.local/bin/herdr-mouse next-tab" }
-ThumbwheelScrollUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse prev-workspace" }
-ThumbwheelScrollDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse next-workspace" }
+_keybinding_config="${HOME}/.config/openlogi-herdr/config.toml"
+_valid_inputs="Back Forward GestureButton DpiToggle ThumbwheelScrollUp ThumbwheelScrollDown GestureUp GestureDown"
+_valid_actions="focus-left focus-right focus-up focus-down zoom-toggle next-tab prev-tab next-workspace prev-workspace"
 
-# Gesture pad directions (add if your device exposes them and you want up/down focus):
-# GestureUp   = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-up" }
-# GestureDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-down" }
-TOML
+_bootstrap_is_valid_input() {
+	case " $_valid_inputs " in
+	*" $1 "*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+_bootstrap_is_valid_action() {
+	case " $_valid_actions " in
+	*" $1 "*) return 0 ;;
+	*) return 1 ;;
+	esac
+}
+
+_bootstrap_get_effective_action() {
+	_bge_input="$1"
+	_bge_default="$2"
+	if [ ! -f "$_keybinding_config" ]; then
+		printf '%s' "$_bge_default"
+		return 0
+	fi
+	_bge_found=""
+	_bge_in_section=0
+	while IFS= read -r _bge_raw || [ -n "$_bge_raw" ]; do
+		_bge_line=$(printf '%s' "$_bge_raw" | tr -d '\r' 2>/dev/null || printf '%s' "$_bge_raw")
+		_bge_trim=$(printf '%s' "$_bge_line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' 2>/dev/null || printf '%s' "$_bge_line")
+		case "$_bge_trim" in
+		"" | \#*) continue ;;
+		esac
+		case "$_bge_trim" in
+		\[*\]*)
+			_bge_sec=$(printf '%s' "$_bge_trim" | sed 's/[[:space:]]*#.*//' 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' 2>/dev/null || printf '%s' "$_bge_trim")
+			if [ "$_bge_sec" = "[keybindings]" ]; then
+				_bge_in_section=1
+			else
+				_bge_in_section=0
+			fi
+			continue
+			;;
+		esac
+		if [ "$_bge_in_section" -eq 0 ]; then
+			continue
+		fi
+		_bge_no_comment=$(printf '%s' "$_bge_line" | sed 's/#.*//' 2>/dev/null || printf '%s' "$_bge_line")
+		_bge_stripped=$(printf '%s' "$_bge_no_comment" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' 2>/dev/null || printf '%s' "$_bge_no_comment")
+		case "$_bge_stripped" in
+		"" | \#*) continue ;;
+		*"="*) ;;
+		*) continue ;;
+		esac
+		_bge_key=$(printf '%s' "$_bge_stripped" | sed -E 's/^([^=]+)=.*/\1/' 2>/dev/null | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' 2>/dev/null || printf '%s' "$_bge_stripped")
+		if [ "$_bge_key" != "$_bge_input" ]; then
+			continue
+		fi
+		_bge_val_raw=$(printf '%s' "$_bge_stripped" | sed -E 's/^[^=]*=[[:space:]]*//' 2>/dev/null || printf '')
+		_bge_val_trim=$(printf '%s' "$_bge_val_raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' 2>/dev/null || printf '%s' "$_bge_val_raw")
+		_bge_first=$(printf '%s' "$_bge_val_trim" | cut -c1 2>/dev/null || printf '%s' "$_bge_val_trim" | sed 's/^\(.\)/\1/' 2>/dev/null || true)
+		if [ "$_bge_first" = '"' ]; then
+			_bge_val=$(printf '%s' "$_bge_val_trim" | sed -E 's/^"([^"]*)".*/\1/' 2>/dev/null || printf '')
+		elif [ "$_bge_first" = "'" ]; then
+			_bge_val=$(printf '%s' "$_bge_val_trim" | sed -E "s/^'([^']*)'.*/\1/" 2>/dev/null || printf '')
+		else
+			_bge_val=$(printf '%s' "$_bge_val_trim" | sed -E 's/[[:space:]].*//' 2>/dev/null || printf '%s' "$_bge_val_trim")
+		fi
+		if _bootstrap_is_valid_input "$_bge_key" 2>/dev/null && [ -n "$_bge_val" ] && _bootstrap_is_valid_action "$_bge_val" 2>/dev/null; then
+			_bge_found="$_bge_val"
+		fi
+	done < "$_keybinding_config" 2>/dev/null || true
+	if [ -n "$_bge_found" ]; then
+		printf '%s' "$_bge_found" 2>/dev/null || printf '%s' "$_bge_default"
+	else
+		printf '%s' "$_bge_default" 2>/dev/null || true
+	fi
+}
+
+_bootstrap_get_overlay_body() {
+	_b_body_back=$(_bootstrap_get_effective_action "Back" "focus-left" 2>/dev/null || printf 'focus-left')
+	_b_body_forward=$(_bootstrap_get_effective_action "Forward" "focus-right" 2>/dev/null || printf 'focus-right')
+	_b_body_gesture_button=$(_bootstrap_get_effective_action "GestureButton" "zoom-toggle" 2>/dev/null || printf 'zoom-toggle')
+	_b_body_dpi=$(_bootstrap_get_effective_action "DpiToggle" "next-tab" 2>/dev/null || printf 'next-tab')
+	_b_body_up=$(_bootstrap_get_effective_action "ThumbwheelScrollUp" "prev-workspace" 2>/dev/null || printf 'prev-workspace')
+	_b_body_down=$(_bootstrap_get_effective_action "ThumbwheelScrollDown" "next-workspace" 2>/dev/null || printf 'next-workspace')
+	_b_body_gup=$(_bootstrap_get_effective_action "GestureUp" "" 2>/dev/null || printf '')
+	_b_body_gdown=$(_bootstrap_get_effective_action "GestureDown" "" 2>/dev/null || printf '')
+	# shellcheck disable=SC2016
+	printf 'Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_b_body_back"
+	# shellcheck disable=SC2016
+	printf 'Forward = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_b_body_forward"
+	# shellcheck disable=SC2016
+	printf 'GestureButton = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_b_body_gesture_button"
+	# shellcheck disable=SC2016
+	printf 'DpiToggle = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_b_body_dpi"
+	# shellcheck disable=SC2016
+	printf 'ThumbwheelScrollUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_b_body_up"
+	# shellcheck disable=SC2016
+	printf 'ThumbwheelScrollDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_b_body_down"
+	if [ -n "$_b_body_gup" ]; then
+		# shellcheck disable=SC2016
+		printf 'GestureUp = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_b_body_gup"
+	fi
+	if [ -n "$_b_body_gdown" ]; then
+		# shellcheck disable=SC2016
+		printf 'GestureDown = { RunShellCommand = "$HOME/.local/bin/herdr-mouse %s" }\n' "$_b_body_gdown"
 	fi
 }
 
@@ -138,13 +226,38 @@ fi
 
 header="[devices.\"$device_key\".per_app_bindings.\"com.mitchellh.ghostty\"]"
 
-# Already has correct block? Then nothing to do (idempotent)
+# Already has correct block? Then nothing to do (idempotent) — check effective mapping
+_eff_back=$(_bootstrap_get_effective_action "Back" "focus-left" 2>/dev/null || printf 'focus-left')
+_eff_forward=$(_bootstrap_get_effective_action "Forward" "focus-right" 2>/dev/null || printf 'focus-right')
+_eff_gesture_button=$(_bootstrap_get_effective_action "GestureButton" "zoom-toggle" 2>/dev/null || printf 'zoom-toggle')
+_eff_dpi=$(_bootstrap_get_effective_action "DpiToggle" "next-tab" 2>/dev/null || printf 'next-tab')
+_eff_up=$(_bootstrap_get_effective_action "ThumbwheelScrollUp" "prev-workspace" 2>/dev/null || printf 'prev-workspace')
+_eff_down=$(_bootstrap_get_effective_action "ThumbwheelScrollDown" "next-workspace" 2>/dev/null || printf 'next-workspace')
+_eff_gup=$(_bootstrap_get_effective_action "GestureUp" "" 2>/dev/null || printf '')
+_eff_gdown=$(_bootstrap_get_effective_action "GestureDown" "" 2>/dev/null || printf '')
 if [ -f "$openlogi_config" ] \
 	&& grep -q 'per_app_bindings\."com\.mitchellh\.ghostty"' "$openlogi_config" 2>/dev/null \
-	&& grep -Fq 'Back = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-left" }' "$openlogi_config" 2>/dev/null \
-	&& grep -Fq 'Forward = { RunShellCommand = "$HOME/.local/bin/herdr-mouse focus-right" }' "$openlogi_config" 2>/dev/null \
-	&& grep -Fq 'GestureButton = { RunShellCommand = "$HOME/.local/bin/herdr-mouse zoom-toggle" }' "$openlogi_config" 2>/dev/null; then
-	exit 0
+	&& grep -Fq "Back = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_back\" }" "$openlogi_config" 2>/dev/null \
+	&& grep -Fq "Forward = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_forward\" }" "$openlogi_config" 2>/dev/null \
+	&& grep -Fq "GestureButton = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_gesture_button\" }" "$openlogi_config" 2>/dev/null \
+	&& grep -Fq "DpiToggle = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_dpi\" }" "$openlogi_config" 2>/dev/null \
+	&& grep -Fq "ThumbwheelScrollUp = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_up\" }" "$openlogi_config" 2>/dev/null \
+	&& grep -Fq "ThumbwheelScrollDown = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_down\" }" "$openlogi_config" 2>/dev/null; then
+	_gup_ok=1
+	_gdown_ok=1
+	if [ -n "$_eff_gup" ]; then
+		if ! grep -Fq "GestureUp = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_gup\" }" "$openlogi_config" 2>/dev/null; then
+			_gup_ok=0
+		fi
+	fi
+	if [ -n "$_eff_gdown" ]; then
+		if ! grep -Fq "GestureDown = { RunShellCommand = \"\$HOME/.local/bin/herdr-mouse $_eff_gdown\" }" "$openlogi_config" 2>/dev/null; then
+			_gdown_ok=0
+		fi
+	fi
+	if [ "$_gup_ok" -eq 1 ] && [ "$_gdown_ok" -eq 1 ]; then
+		exit 0
+	fi
 fi
 
 # Ensure config dir exists
